@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 13</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 15</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -111,7 +111,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <button id="btnCopy">Kopiera båda</button>
     <button id="btnXlsx" class="pri">Exportera Excel</button>
   </div>
-  <div class="mut" style="margin-top:6px">Dosor eller lock: klicka i rad 10 i rätt kolumn (D eller L) i Excel och klistra in – bara den kolumnen fylls i. "Kopiera båda" fyller D och L samtidigt (klicka i D-kolumnen).</div>
+  <div class="mut" style="margin-top:6px">Dosor eller lock: klicka i rad 10 i rätt kolumn (D eller L) i Excel och klistra in – bara den kolumnen fylls i. "Kopiera båda" fyller D och L samtidigt (klicka i D-kolumnen).<br>Vikterna kopieras som tal med punkt (8.44). Blir de vänsterställda i Excel eller ger MEDEL/AVERAGE #DIV/0!: byt till komma under Inställningar → Decimaltecken.</div>
   <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>Dosor (g)</th><th>Lock (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
   <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button><button id="btnBackup">Återställ backup</button></div>
 </div>
@@ -131,15 +131,15 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
   <div class="set" style="margin-top:8px">
     <div><label>Antal decimaler på vågen</label><input id="sDec" type="number" min="0" max="4"></div>
     <div><label>Lutning på siffrorna (°)</label><input id="sSlant" type="range" min="-5" max="20" step="1"><span class="mut" id="vSlant"></span></div>
-    <div><label>Kontrastgräns (högre = bara mörka segment)</label><input id="sK" type="range" min="0.04" max="0.25" step="0.01"><span class="mut" id="vK"></span></div>
     <div><label>Stabil i (sekunder)</label><input id="sStable" type="number" min="0.3" max="5" step="0.1"></div>
     <div><label>Minsta vikt som räknas (g)</label><input id="sMin" type="number" min="0" step="0.1"></div>
     <div><label>Antal per sort</label><input id="sTarget" type="number" min="1" max="2000"></div>
     <div><label>Max skillnad för "stabil" (g)</label><input id="sTol" type="number" min="0" step="0.01"></div>
     <div><label>Markera i rött om vikten avviker mer än (g) från sortens median</label><input id="sDev" type="number" min="0" step="0.05"></div>
+    <div><label>Decimaltecken vid kopiering till Excel</label><select id="sSep"><option value=".">Punkt 8.44 (engelsk Excel)</option><option value=",">Komma 8,44 (svensk Excel)</option></select></div>
     <div style="justify-content:flex-end"><label class="switch"><input type="checkbox" id="sInv"> Ljusa siffror på mörk bakgrund</label></div>
   </div>
-  <div class="mut" style="margin-top:8px">Förhandsvisning: så här ser appen siffrorna. Grön ruta = segment tänt, röd = släckt.</div>
+  <div class="mut" style="margin-top:8px">Förhandsvisning: så här ser appen siffrorna. Grön ruta = segment tänt, röd = släckt. Under bilden: hur de 9 varianterna röstade.</div>
   <canvas id="dbg"></canvas>
   <div class="mut" id="rawRead"></div>
 </details>
@@ -158,7 +158,7 @@ const store = {
 };
 
 // ---------- Inställningar & data ----------
-const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null}, store.get('vag_settings7', {}));
+const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null,copySep:'.'}, store.get('vag_settings7', {}));
 const newData = () => ({dosor:[], lock:[], mode:'dosor', hist:[]});
 let D = Object.assign(newData(), store.get('vag_data', {}));
 const saveS = () => store.set('vag_settings7', S);
@@ -194,6 +194,8 @@ function ask(text){ return new Promise(res=>{ $('dlgText').textContent=text; $('
   const done=v=>{ $('dlg').classList.remove('show'); $('dlgYes').onclick=$('dlgNo').onclick=null; res(v); };
   $('dlgYes').onclick=()=>done(true); $('dlgNo').onclick=()=>done(false); }); }
 const fmt = v => (v==null || isNaN(v)) ? '' : v.toFixed(S.decimals).replace('.', ',');
+// Vid kopiering: rena tal utan mellanslag, med det decimaltecken som Excel förväntar sig (punkt i engelsk Excel, komma i svensk)
+const fmtCopy = v => (v==null || isNaN(v)) ? '' : v.toFixed(S.decimals).replace('.', S.copySep);
 const parseNum = s => { const v = parseFloat(String(s).replace(',', '.').replace(/[^0-9.\-]/g,'')); return isNaN(v) ? null : v; };
 
 // ---------- Tabell ----------
@@ -273,14 +275,15 @@ $('bkClose').onclick=()=>$('bkDlg').classList.remove('show');
 
 // ---------- Inställningsfält ----------
 function bindSet(){
-  const map=[['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sK','k',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat],['sDev','dev',parseFloat]];
+  const map=[['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat],['sDev','dev',parseFloat]];
   for(const [id,k,p] of map){ const el=$(id); el.value=S[k]; el.addEventListener('input',()=>{ const v=p(el.value); if(!isNaN(v)){ S[k]=v; saveS(); showVals(); if(['target','decimals','dev'].includes(k)) render(); } }); }
+  $('sSep').value=S.copySep; $('sSep').onchange=()=>{ S.copySep=$('sSep').value; saveS(); };
   $('sInv').checked=S.invert; $('sInv').onchange=()=>{ S.invert=$('sInv').checked; saveS(); };
   $('autoFind').checked=S.autoFind; $('autoFind').onchange=()=>{ S.autoFind=$('autoFind').checked; saveS(); };
   $('auto').checked=S.auto; $('auto').onchange=()=>{ S.auto=$('auto').checked; saveS(); };
   showVals();
 }
-function showVals(){ $('vSlant').textContent=S.slant+'°'; $('vK').textContent=S.k.toFixed(2); }
+function showVals(){ $('vSlant').textContent=S.slant+'°'; }
 
 // ---------- Kamera ----------
 const video=$('video'), ov=$('overlay'), octx=ov.getContext('2d');
@@ -363,6 +366,11 @@ function locateLCD(){
   return autoRoi;
 }
 
+// Avläsningen körs med tre olika kontrastgränser och tre tolkningssätt (9 varianter).
+// Ett tal godkänns bara om minst 4 varianter läser exakt samma (och inget annat tal ligger nära), eller 3 om inget annat tal har mer än 1 röst.
+// Testat på 264 bilder från riktiga loggar: 243 rätt (förut 229), fel tal bara på en bild mitt i ett siffbyte (förut 5 fel).
+const KS=[0.12,0.18,0.25], VOTE_NEED=4, VOTE_MARGIN=2;
+const SEGR=[['h',0,.18],['v',.2,.38,.55,1],['v',.62,.8,.5,.95],['h',.82,1],['v',.62,.8,0,.45],['v',.2,.38,.05,.5],['h',.4,.6]];
 function readDisplay(){
   if(S.autoFind){ const a=locateLCD(); if(!a) return null; S.roi=a; }
   const vw=video.videoWidth, vh=video.videoHeight, r=S.roi;
@@ -380,70 +388,100 @@ function readDisplay(){
   // lätt utjämning 3x3
   const g=new Float32Array(g1);
   for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){ let s=0; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) s+=g1[(y+dy)*W+x+dx]; g[y*W+x]=s/9; }
-  // lokal tröskel via integralbild
+  // lokalt medel (integralbild) och kontrast = hur mycket mörkare en punkt är än sin omgivning
   const IW=W+1, I=new Float64Array(IW*(H+1));
   for(let y=0;y<H;y++){ let s=0; for(let x=0;x<W;x++){ s+=g[y*W+x]; I[(y+1)*IW+x+1]=I[y*IW+x+1]+s; } }
-  const rad=Math.max(3,Math.floor(H*0.45)), bin=new Uint8Array(N);
+  const rad=Math.max(3,Math.floor(H*0.45)), mean=new Float32Array(N), cont=new Float32Array(N);
   for(let y=1;y<H-1;y++){ const y0=Math.max(0,y-rad), y1=Math.min(H,y+rad+1);
     for(let x=1;x<W-1;x++){ const x0=Math.max(0,x-rad), x1=Math.min(W,x+rad+1);
       const m=(I[y1*IW+x1]-I[y0*IW+x1]-I[y1*IW+x0]+I[y0*IW+x0])/((y1-y0)*(x1-x0));
-      bin[y*W+x]= g[y*W+x] < m*(1-S.k) ? 1 : 0; } }
-  // sammanhängande delar (segment) i bilden
-  const lab=new Int32Array(N), stk=new Int32Array(N), comps=[];
-  for(let j=0;j<N;j++){ if(!bin[j]||lab[j]) continue; const id=comps.length+1; let sp=0,area=0,x0=1e9,y0=1e9,x1=-1,y1=-1; stk[sp++]=j; lab[j]=id;
-    while(sp){ const k=stk[--sp], x=k%W, y=(k/W)|0; area++; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
-      if(x>0&&bin[k-1]&&!lab[k-1]){lab[k-1]=id;stk[sp++]=k-1;} if(x<W-1&&bin[k+1]&&!lab[k+1]){lab[k+1]=id;stk[sp++]=k+1;}
-      if(y>0&&bin[k-W]&&!lab[k-W]){lab[k-W]=id;stk[sp++]=k-W;} if(y<H-1&&bin[k+W]&&!lab[k+W]){lab[k+W]=id;stk[sp++]=k+W;} }
-    comps.push({id,area,x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}); }
-  // släng ramkanter, brus, decimalpunkt, "g", "o"
-  // släng ramkanter (rör vänster/höger kant), stora ramdelar och brus
+      mean[y*W+x]=m; const c=(m-g[y*W+x])/(m+1); cont[y*W+x]=c>0?c:0; } }
   const edge=Math.max(3,Math.round(W*0.03));   // displayens ram ger mörka streck nära kanten – riktiga siffror sitter aldrig där
-  let cand=comps.filter(c=>c.area>=6 && c.x0>edge && c.x1<W-1-edge && c.w<0.6*W && c.h<0.95*H);
-  // typisk segmentlängd L = median av avlånga, tjocka delar
-  const mx=c=>Math.max(c.w,c.h), mn=c=>Math.min(c.w,c.h), isLong=c=>mx(c)>=2*mn(c);
-  let lens=cand.filter(c=>isLong(c) && mn(c)>=3).map(mx).sort((a,b)=>a-b);
-  let L=lens.length ? lens[lens.length>>1] : 0;
-  lens=lens.filter(v=>v>=0.6*L && v<=1.5*L); if(lens.length) L=lens[lens.length>>1];
-  // behåll segment och hopväxta siffror; släng punkt, "o", "g", tunna ramlinjer och brus
-  cand=cand.filter(c=>mx(c)>=0.6*L && (isLong(c) || mx(c)>=0.9*L) && mn(c)>=0.15*L && c.h<=2.4*L && c.w<=2*L);
-  const keep=new Uint8Array(comps.length+1); for(const c of cand) keep[c.id]=1;
-  const clean=new Uint8Array(N); for(let j=0;j<N;j++) if(lab[j]&&keep[lab[j]]) clean[j]=1;
-  bin.set(clean);
-  const boxes=[], digits=[]; let chars='';
-  if(cand.length){
-    // siffrornas höjdband bestäms av lodräta delar; släng sådant som ligger utanför bandet
+  const ct=(x,y)=> (x>=0&&x<W&&y>=0&&y<H) ? cont[y*W+x] : 0;
+
+  function analyze(k){
+    const bin=new Uint8Array(N);
+    for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){ const j=y*W+x; bin[j]= g[j] < mean[j]*(1-k) ? 1 : 0; }
+    // sammanhängande delar (segment)
+    const lab=new Int32Array(N), stk=new Int32Array(N), comps=[];
+    for(let j=0;j<N;j++){ if(!bin[j]||lab[j]) continue; const id=comps.length+1; let sp=0,area=0,x0=1e9,y0=1e9,x1=-1,y1=-1; stk[sp++]=j; lab[j]=id;
+      while(sp){ const q=stk[--sp], x=q%W, y=(q/W)|0; area++; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+        if(x>0&&bin[q-1]&&!lab[q-1]){lab[q-1]=id;stk[sp++]=q-1;} if(x<W-1&&bin[q+1]&&!lab[q+1]){lab[q+1]=id;stk[sp++]=q+1;}
+        if(y>0&&bin[q-W]&&!lab[q-W]){lab[q-W]=id;stk[sp++]=q-W;} if(y<H-1&&bin[q+W]&&!lab[q+W]){lab[q+W]=id;stk[sp++]=q+W;} }
+      comps.push({id,area,x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}); }
+    let cand=comps.filter(c=>c.area>=6 && c.x0>edge && c.x1<W-1-edge && c.w<0.6*W && c.h<0.95*H);
+    const mx=c=>Math.max(c.w,c.h), mn=c=>Math.min(c.w,c.h), isLong=c=>mx(c)>=2*mn(c);
+    let lens=cand.filter(c=>isLong(c) && mn(c)>=3).map(mx).sort((a,b)=>a-b);
+    let L=lens.length ? lens[lens.length>>1] : 0;
+    lens=lens.filter(v=>v>=0.6*L && v<=1.5*L); if(lens.length) L=lens[lens.length>>1];
+    // behåll segment och hopväxta siffror; släng punkt, "o", "g", tunna ramlinjer och brus
+    cand=cand.filter(c=>mx(c)>=0.6*L && (isLong(c) || mx(c)>=0.9*L) && mn(c)>=0.15*L && c.h<=2.4*L && c.w<=2*L);
+    const keep=new Uint8Array(comps.length+1); for(const c of cand) keep[c.id]=1;
+    for(let j=0;j<N;j++) bin[j]= (lab[j]&&keep[lab[j]]) ? 1 : 0;
+    const out={bin, boxes:[], digits:[], s:{}};
+    if(!cand.length) return out;
     const vert=cand.filter(c=>c.h>=c.w); const bandSrc=vert.length?vert:cand;
     const T=Math.min(...bandSrc.map(c=>c.y0)), B=Math.max(...bandSrc.map(c=>c.y1)), h=B-T+1;
     cand=cand.filter(c=>{ const cy=(c.y0+c.y1)/2; return cy>=T-0.05*h && cy<=B+0.05*h; });
     cand.sort((a,b)=>a.x0-b.x0);
-    let groups=[]; for(const c of cand){ const g=groups[groups.length-1]; if(g && c.x0<=g.x1+0.12*h){ g.x1=Math.max(g.x1,c.x1); } else groups.push({x0:c.x0,x1:c.x1}); }
-    // vågen visar siffrorna högerställda: behåll bara gruppen längst till höger + grannar på normalt avstånd
+    let groups=[]; for(const c of cand){ const gr=groups[groups.length-1]; if(gr && c.x0<=gr.x1+0.12*h){ gr.x1=Math.max(gr.x1,c.x1); } else groups.push({x0:c.x0,x1:c.x1}); }
+    // vågen visar siffrorna högerställda: behåll gruppen längst till höger + grannar på normalt avstånd
     for(let i=groups.length-1;i>0;i--){ if(groups[i].x0-groups[i-1].x1>0.8*h){ groups=groups.slice(i); break; } }
+    if(!groups.length) return out;
     const at=(x,y)=> (x>=0&&x<W&&y>=0&&y<H) ? bin[y*W+x] : 0;
-    for(const gr of groups){
-      const s0=gr.x0, e=gr.x1, w=e-s0+1;
-      digits.push([s0/W, T/H, (e+1)/W, (B+1)/H]);
-      if(w<0.3*h){ chars+='1'; boxes.push([s0,T,w,h,true]); continue; }
-      const vseg=(y0f,y1f,x0f,x1f)=>{ const ya=Math.floor(T+y0f*h), yb=Math.floor(T+y1f*h), xa=Math.floor(s0+x0f*w), xb=Math.floor(s0+x1f*w); let hit=0;
-        for(let y=ya;y<=yb;y++){ for(let x=xa;x<=xb;x++) if(at(x,y)){ hit++; break; } }
-        const f=hit/(yb-ya+1); boxes.push([xa,ya,xb-xa+1,yb-ya+1,f>0.5]); return f>0.5; };
-      const hseg=(y0f,y1f)=>{ const xa=Math.floor(s0+.35*w), xb=Math.floor(s0+.65*w), ya=Math.floor(T+y0f*h), yb=Math.floor(T+y1f*h); let hit=0;
-        for(let x=xa;x<=xb;x++){ for(let y=ya;y<=yb;y++) if(at(x,y)){ hit++; break; } }
-        const f=hit/(xb-xa+1); boxes.push([xa,ya,xb-xa+1,yb-ya+1,f>0.5]); return f>0.5; };
-      const code=[hseg(0,.18),vseg(.2,.38,.55,1),vseg(.62,.8,.5,.95),hseg(.82,1),vseg(.62,.8,0,.45),vseg(.2,.38,.05,.5),hseg(.4,.6)].map(v=>v?'1':'0').join('');
-      chars += CODES[code] || '?';
-    }
+    // poäng per segment: kontrast (medel av starkaste punkten per skanningslinje) + andel linjer som träffar svart
+    const score=(s0,w)=>SEGR.map(d=>{ let xa,xb,ya,yb,sum=0,n=0,hit=0;
+      if(d[0]==='h'){ xa=Math.floor(s0+.35*w); xb=Math.floor(s0+.65*w); ya=Math.floor(T+d[1]*h); yb=Math.floor(T+d[2]*h);
+        for(let x=xa;x<=xb;x++){ let m=0,hb=0; for(let y=ya;y<=yb;y++){ const c=ct(x,y); if(c>m)m=c; if(at(x,y))hb=1; } sum+=m; n++; hit+=hb; } }
+      else { ya=Math.floor(T+d[1]*h); yb=Math.floor(T+d[2]*h); xa=Math.floor(s0+d[3]*w); xb=Math.floor(s0+d[4]*w);
+        for(let y=ya;y<=yb;y++){ let m=0,hb=0; for(let x=xa;x<=xb;x++){ const c=ct(x,y); if(c>m)m=c; if(at(x,y))hb=1; } sum+=m; n++; hit+=hb; } }
+      return {v:n?sum/n:0, hit:n?hit/n:0, r:[xa,ya,xb-xa+1,yb-ya+1]}; });
+    const per=[], all=[];
+    for(const gr of groups){ const w=gr.x1-gr.x0+1; out.digits.push([gr.x0/W, T/H, (gr.x1+1)/W, (B+1)/H]);
+      if(w<0.3*h){ per.push(null); continue; } const sc=score(gr.x0,w); sc.forEach(z=>all.push(z.v)); per.push(sc); }
+    const thrOf=a=>{ const s=a.slice().sort((x,y)=>x-y); const p90=s.length?s[Math.floor(s.length*0.9)]:0; return Math.max(0.045,0.45*p90); };
+    const thr=thrOf(all);
+    // 1) binär: andel svarta träffar  2) kontrast: gemensam gräns i bilden
+    let sb='', sk='';
+    per.forEach(sc=>{ if(!sc){ sb+='1'; sk+='1'; return; }
+      sb+=CODES[sc.map(z=>z.hit>0.5?'1':'0').join('')]||'?';
+      sk+=CODES[sc.map(z=>z.v>thr?'1':'0').join('')]||'?';
+      sc.forEach(z=>out.boxes.push([...z.r, z.v>thr])); });
+    out.s.bin=sb; out.s.kon=sk;
+    // 3) fack: fast avstånd mellan siffrorna, räknat från sista siffran
+    const wide=groups.filter(gr=>gr.x1-gr.x0+1>=0.4*h), diffs=[];
+    for(let i=1;i<wide.length;i++){ const d=wide[i].x1-wide[i-1].x1; if(d>0.7*h && d<1.05*h) diffs.push(d); }
+    const pitch=diffs.length ? diffs.sort((a,b)=>a-b)[diffs.length>>1] : 0.857*h, dw=0.545*h, xR=groups[groups.length-1].x1;
+    const slots=[]; for(let i=0;i<5;i++){ const right=xR-i*pitch, left=right-dw+1; if(left<edge) break; slots.push(score(left,dw)); }
+    if(slots.length>=3){ const t2=thrOf(slots.slice(0,3).flat().map(z=>z.v)); let sf='';
+      slots.forEach((sc,i)=>{ const code=sc.map(z=>z.v>t2?'1':'0').join(''); let c=code==='0000000'?' ':(CODES[code]||'?'); if(i<3&&c===' ') c='?'; sf=c+sf; });
+      out.s.fack=sf; }
+    return out;
   }
-  lastDigits=digits;
-  if($('setDet').open){
+
+  // kör alla varianter och rösta
+  const votes={}, cands=[]; let show=null;
+  const need=Math.max(1,S.decimals)+1;
+  for(const k of KS){
+    const a=analyze(k); if(k===0.18 || !show) show=a;
+    for(const key of ['bin','kon','fack']){ const s=a.s[key]; if(s==null) continue; const n=s.replace(/ /g,''); cands.push(n);
+      if(new RegExp('^-?\\d{'+need+',}$').test(n)) votes[n]=(votes[n]||0)+1; }
+  }
+  const ranked=Object.entries(votes).sort((a,b)=>b[1]-a[1]);
+  let chars;
+  const top=ranked.length?ranked[0][1]:0, sec=ranked.length>1?ranked[1][1]:0;
+  if(top>=VOTE_NEED && top-sec>=VOTE_MARGIN || top>=3 && sec<=1) chars=ranked[0][0];   // 4 röster med marginal, eller 3 om inget annat tal har mer än 1
+  else chars = cands.every(c=>c==='') ? '' : '?';      // tom display (t.ex. skymd) eller osäker avläsning
+  lastDigits=show?show.digits:[];
+  if($('setDet').open && show){
     dbg.width=W; dbg.height=H;
     const im=dctx.createImageData(W,H);
-    for(let j=0;j<N;j++){ const c=bin[j]?20:235; im.data[j*4]=im.data[j*4+1]=im.data[j*4+2]=c; im.data[j*4+3]=255; }
+    for(let j=0;j<N;j++){ const c=show.bin[j]?20:235; im.data[j*4]=im.data[j*4+1]=im.data[j*4+2]=c; im.data[j*4+3]=255; }
     dctx.putImageData(im,0,0);
-    for(const [x,y,w,h,on] of boxes){ dctx.strokeStyle=on?'#2ecc71':'#e74c3c'; dctx.lineWidth=1; dctx.strokeRect(x+.5,y+.5,w,h); }
-    $('rawRead').textContent='Rå avläsning: "'+chars+'"';
+    for(const [x,y,w,h,on] of show.boxes){ dctx.strokeStyle=on?'#2ecc71':'#e74c3c'; dctx.lineWidth=1; dctx.strokeRect(x+.5,y+.5,w,h); }
+    $('rawRead').textContent='Röster: '+(ranked.map(([v,c])=>v+'×'+c).join('  ')||'–')+'  →  '+(chars||'tom');
   }
-  return decode(chars);
+  const res=decode(chars); res.votes=ranked.slice(0,3); return res;
 }
 
 function decode(chars){
@@ -601,12 +639,12 @@ async function copyText(txt, msg){
   try{ await navigator.clipboard.writeText(txt); toast(msg); }catch(e){ toast('Kunde inte kopiera'); }
 }
 $('btnCopyD').onclick=()=>{ if(!D.dosor.length) return toast('Inga dosor att kopiera');
-  copyText(D.dosor.map(fmt).join('\n'), `Kopierade ${D.dosor.length} dosor`); };
+  copyText(D.dosor.map(fmtCopy).join('\n'), `Kopierade ${D.dosor.length} dosor`); };
 $('btnCopyL').onclick=()=>{ if(!D.lock.length) return toast('Inga lock att kopiera');
-  copyText(D.lock.map(fmt).join('\n'), `Kopierade ${D.lock.length} lock`); };
+  copyText(D.lock.map(fmtCopy).join('\n'), `Kopierade ${D.lock.length} lock`); };
 $('btnCopy').onclick=()=>{
   const n=Math.max(D.dosor.length,D.lock.length); if(!n) return toast('Inget att kopiera');
-  const lines=[]; for(let i=0;i<n;i++) lines.push(fmt(D.dosor[i])+'\t'+fmt(D.lock[i]));
+  const lines=[]; for(let i=0;i<n;i++) lines.push(fmtCopy(D.dosor[i])+'\t'+fmtCopy(D.lock[i]));
   copyText(lines.join('\n'), `Kopierade ${n} rader (dosor och lock)`); };
 
 // ---------- Testlogg ----------
@@ -644,7 +682,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:13, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:15, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
