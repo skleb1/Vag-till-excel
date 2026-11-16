@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vågläsare">
 <meta name="theme-color" content="#111418">
-<title>Vågläsare – Lock & dosor</title>
+<title>Vågläsare – Tara dosor & lock</title>
 <style>
 :root{--bg:#111418;--card:#1b2027;--line:#2c333d;--txt:#e9edf2;--mut:#8b96a5;--acc:#3ba776;--warn:#e0a63a;--bad:#d9534f;--blue:#4a8fe7}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -36,8 +36,8 @@ button:active{transform:scale(.98)}
 .cnt{display:block;font-size:13px;font-weight:400;opacity:.9}
 label{font-size:14px;color:var(--mut)}
 .set{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.set div{display:flex;flex-direction:column;gap:4px}
-.set input,.set select{background:#0e1115;border:1px solid var(--line);border-radius:8px;padding:8px}
+.set div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.set input,.set select{width:100%;min-width:0;background:#0e1115;border:1px solid var(--line);border-radius:8px;padding:8px}
 input[type=range]{padding:0}
 .switch{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--txt)}
 .switch input{width:22px;height:22px}
@@ -48,6 +48,7 @@ th:first-child,td:first-child{text-align:left;color:var(--mut);width:48px}
 td input{width:100%;background:transparent;border:0;text-align:right;padding:6px 2px;color:var(--txt)}
 td input:focus{background:#0e1115;outline:1px solid var(--blue)}
 td.cur{outline:2px solid var(--blue);outline-offset:-2px}
+td.dev input{color:#ff6b6b;font-weight:700}
 #tbl{max-height:50vh;overflow:auto}
 .mut{color:var(--mut);font-size:13px}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
@@ -61,7 +62,17 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 3</span></h1>
+<h1>⚖️ Tara – dosor & lock <span class="mut" style="font-weight:400">version 5</span></h1>
+
+<div class="card">
+  <div class="set">
+    <div><label>Sort</label><input id="mSort" list="sorter" placeholder="t.ex. Hyper" autocomplete="off"></div>
+    <div><label>Datum för kontroll</label><input id="mDate" type="date"></div>
+    <div><label>AN</label><input id="mAN" placeholder="t.ex. AN 40  41"></div>
+    <div><label>ID</label><input id="mID" placeholder="t.ex. ID 4664  4663"></div>
+  </div>
+  <datalist id="sorter"></datalist>
+</div>
 
 <div class="card">
   <div id="camWrap">
@@ -82,8 +93,8 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <div id="status">Ingen kamera</div>
   </div>
   <div class="tabs" style="margin-top:10px">
-    <button id="tabLock" class="on">Lock<span class="cnt" id="cLock">0/170</span></button>
-    <button id="tabDosor">Dosor<span class="cnt" id="cDosor">0/170</span></button>
+    <button id="tabDosor" class="on">Dosor (D)<span class="cnt" id="cDosor">0/160</span></button>
+    <button id="tabLock">Lock (L)<span class="cnt" id="cLock">0/160</span></button>
   </div>
   <div class="row" style="margin-top:10px">
     <button id="btnSave" class="pri big">Spara vikten</button>
@@ -92,6 +103,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
   <div class="row" style="margin-top:8px">
     <label class="switch"><input type="checkbox" id="auto" checked> Spara automatiskt när vikten är stabil</label>
   </div>
+
   <div class="row" style="margin-top:8px">
     <input id="manual" inputmode="decimal" placeholder="Skriv vikt för hand…" style="background:#0e1115;border:1px solid var(--line);border-radius:10px;padding:10px">
     <button id="btnManual" style="flex:0 0 auto">Lägg till</button>
@@ -103,9 +115,9 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <button id="btnXlsx" class="pri">Exportera Excel</button>
     <button id="btnCopy">Kopiera till urklipp</button>
   </div>
-  <div class="mut" style="margin-top:6px">Kopiera ger två kolumner (lock, dosor) med decimalkomma – klistra in direkt i din befintliga Excel-fil.</div>
-  <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>Lock (g)</th><th>Dosor (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
-  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button></div>
+  <div class="mut" style="margin-top:6px">Kopiera ger två kolumner (D, L) med decimalkomma. Klicka i rad 10 i sortens D-kolumn i Excel och klistra in.</div>
+  <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>D – dosa (g)</th><th>L – lock (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
+  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny kontroll (rensa allt)</button></div>
 </div>
 
 <div class="card">
@@ -118,7 +130,8 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <div><label>Stabil i (sekunder)</label><input id="sStable" type="number" min="0.3" max="5" step="0.1"></div>
     <div><label>Minsta vikt som räknas (g)</label><input id="sMin" type="number" min="0" step="0.1"></div>
     <div><label>Antal per sort</label><input id="sTarget" type="number" min="1" max="2000"></div>
-    <div><label>Max skillnad för "stabil" (g)</label><input id="sTol" type="number" min="0" step="0.1"></div>
+    <div><label>Max skillnad för "stabil" (g)</label><input id="sTol" type="number" min="0" step="0.01"></div>
+    <div><label>Markera i rött om vikten avviker mer än (g) från sortens median</label><input id="sDev" type="number" min="0" step="0.05"></div>
     <div style="justify-content:flex-end"><label class="switch"><input type="checkbox" id="sInv"> Ljusa siffror på mörk bakgrund</label></div>
   </div>
   <div class="mut" style="margin-top:8px">Förhandsvisning: så här ser appen siffrorna. Grön ruta = segment tänt, röd = släckt.</div>
@@ -140,10 +153,15 @@ const store = {
 };
 
 // ---------- Inställningar & data ----------
-const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true}, store.get('vag_settings2', {}));
-let D = store.get('vag_data', {lock:[], dosor:[], mode:'lock'});
-const saveS = () => store.set('vag_settings2', S);
-const saveD = () => store.set('vag_data', D);
+const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:160,tol:0.02,invert:false,auto:true,dev:0.25}, store.get('vag_settings3', {}));
+const newData = () => ({dosor:[], lock:[], mode:'dosor', hist:[], meta:{sort:'', date:new Date().toISOString().slice(0,10), an:'', id:''}});
+let D = Object.assign(newData(), store.get('tara_data', {}));
+const saveS = () => store.set('vag_settings3', S);
+const saveD = () => store.set('tara_data', D);
+const SORTER = ['Blackcurrant','Creamy Capp.','Crispy Peppermint','Fresh Spearmint','Habanero Mint','Hot Mango','Hot Peach','Hot Rhubarb','Hyper','Ice Cool Mint','Jalapeno','Jalapeno Lime','Kina-Hyper','Licorice Fusion','Mega','Norge','Red Chili Melon','Sicily Spritz','Smooth M Kina','Smooth Mint','Spicy Apple','Vit','Vita'];
+// Median av en kolumn – används för att markera avvikande vikter (sparas ändå alltid)
+const median = a => { const v=a.filter(x=>x!=null).sort((x,y)=>x-y); return v.length ? v[v.length>>1] : null; };
+const isDev = (v, med) => v!=null && med!=null && Math.abs(v-med) > S.dev + 1e-9;
 
 // ---------- UI-hjälp ----------
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),1800); }
@@ -164,15 +182,16 @@ const parseNum = s => { const v = parseFloat(String(s).replace(',', '.').replace
 // ---------- Tabell ----------
 function render(){
   $('cLock').textContent = `${D.lock.length}/${S.target}`;
+  const mD = D.dosor.length>=10 ? median(D.dosor) : null, mL = D.lock.length>=10 ? median(D.lock) : null;
   $('cDosor').textContent = `${D.dosor.length}/${S.target}`;
   $('tabLock').classList.toggle('on', D.mode==='lock');
   $('tabDosor').classList.toggle('on', D.mode==='dosor');
   const n = Math.max(S.target, D.lock.length, D.dosor.length);
   let h = '';
   for(let i=0;i<n;i++){
-    const cl = (D.mode==='lock' && i===D.lock.length) ? ' class="cur"' : '';
-    const cd = (D.mode==='dosor' && i===D.dosor.length) ? ' class="cur"' : '';
-    h += `<tr><td>${i+1}</td><td${cl}><input data-k="lock" data-i="${i}" inputmode="decimal" value="${fmt(D.lock[i])}"></td><td${cd}><input data-k="dosor" data-i="${i}" inputmode="decimal" value="${fmt(D.dosor[i])}"></td></tr>`;
+    const cl = ` class="${(D.mode==='lock' && i===D.lock.length)?'cur ':''}${isDev(D.lock[i],mL)?'dev':''}"`;
+    const cd = ` class="${(D.mode==='dosor' && i===D.dosor.length)?'cur ':''}${isDev(D.dosor[i],mD)?'dev':''}"`;
+    h += `<tr><td>${i+1}</td><td${cd}><input data-k="dosor" data-i="${i}" inputmode="decimal" value="${fmt(D.dosor[i])}"></td><td${cl}><input data-k="lock" data-i="${i}" inputmode="decimal" value="${fmt(D.lock[i])}"></td></tr>`;
   }
   $('tbody').innerHTML = h;
   const cur = $('tbody').querySelector('td.cur');
@@ -186,30 +205,39 @@ $('tbody').addEventListener('change', e=>{
   saveD(); render();
 });
 
-function record(v){
-  if(v==null) return;
-  D[D.mode].push(v);
-  beep(); flash(); toast(`${D.mode==='lock'?'Lock':'Dosa'} ${D[D.mode].length}: ${fmt(v)} g`);
-  if(D.mode==='lock' && D.lock.length>=S.target && D.dosor.length<S.target){
-    D.mode='dosor'; setTimeout(()=>{ beep(800,250); toast('Alla lock klara – nu dosor!'); },400);
+function record(v, force){
+  if(v==null) return false;
+  const kind = D.mode, name = kind==='dosor' ? 'Dosa' : 'Lock';
+  if(D[kind].length>=S.target && !force){ beep(300,350); toast(`Redan ${S.target} ${kind==='dosor'?'dosor':'lock'} – byt flik eller tryck "Spara vikten"`); return false; }
+  const med = D[kind].length>=10 ? median(D[kind]) : null;
+  D[kind].push(v); D.hist.push(kind);
+  if(isDev(v, med)){ beep(500,180); setTimeout(()=>beep(500,180),260); flash();
+    toast(`⚠️ ${name} ${D[kind].length}: ${fmt(v)} g – avviker (median ${fmt(med)} g). Sparad.`); }
+  else { beep(); flash(); toast(`${name} ${D[kind].length}: ${fmt(v)} g`); }
+  if(kind==='dosor' && D.dosor.length===S.target && D.lock.length<S.target){
+    D.mode='lock'; setTimeout(()=>{ beep(800,250); toast('Alla dosor klara – nu lock!'); },1200);
   } else if(D.lock.length>=S.target && D.dosor.length>=S.target){
-    setTimeout(()=>{ beep(800,400); toast('Klart! Exportera till Excel.'); },400);
+    setTimeout(()=>{ beep(800,400); toast('Klart! Kopiera eller exportera till Excel.'); },1200);
   }
-  saveD(); render();
+  saveD(); render(); return true;
 }
 $('tabLock').onclick=()=>{ D.mode='lock'; saveD(); render(); };
 $('tabDosor').onclick=()=>{ D.mode='dosor'; saveD(); render(); };
-$('btnUndo').onclick=()=>{ const a=D[D.mode]; if(a.length){ const v=a.pop(); saveD(); render(); toast(`Tog bort ${fmt(v)} g`); armed=false; } };
-$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val); armed=false; smallCnt=0; } else toast('Ingen giltig avläsning just nu'); };
-const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v); $('manual').value=''; } };
+$('btnUndo').onclick=()=>{ const k=D.hist.pop() || D.mode; const a=D[k]; if(a.length){ const v=a.pop(); D.mode=k; saveD(); render(); toast(`Tog bort ${k==='dosor'?'dosa':'lock'} ${fmt(v)} g`); armed=false; } };
+$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val, true); armed=false; smallCnt=0; } else toast('Ingen giltig avläsning just nu'); };
+const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v, true); $('manual').value=''; } };
 $('btnManual').onclick=addManual;
 $('manual').addEventListener('keydown',e=>{ if(e.key==='Enter') addManual(); });
-$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny vecka? Exportera först om du inte redan gjort det.')){ D={lock:[],dosor:[],mode:'lock'}; saveD(); render(); } };
+$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny kontroll? Kopiera eller exportera först om du inte redan gjort det.')){ D=newData(); saveD(); bindMeta(); render(); } };
+function bindMeta(){
+  $('sorter').innerHTML=SORTER.map(n=>`<option value="${n}">`).join('');
+  for(const [id,k] of [['mSort','sort'],['mDate','date'],['mAN','an'],['mID','id']]){ const el=$(id); el.value=D.meta[k]||''; el.oninput=()=>{ D.meta[k]=el.value; saveD(); if(k==='sort') render(); }; }
+}
 
 // ---------- Inställningsfält ----------
 function bindSet(){
-  const map=[['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sK','k',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat]];
-  for(const [id,k,p] of map){ const el=$(id); el.value=S[k]; el.addEventListener('input',()=>{ const v=p(el.value); if(!isNaN(v)){ S[k]=v; saveS(); showVals(); if(k==='target'||k==='decimals') render(); } }); }
+  const map=[['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sK','k',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat],['sDev','dev',parseFloat]];
+  for(const [id,k,p] of map){ const el=$(id); el.value=S[k]; el.addEventListener('input',()=>{ const v=p(el.value); if(!isNaN(v)){ S[k]=v; saveS(); showVals(); if(['target','decimals','dev'].includes(k)) render(); } }); }
   $('sInv').checked=S.invert; $('sInv').onchange=()=>{ S.invert=$('sInv').checked; saveS(); };
   $('autoFind').checked=S.autoFind; $('autoFind').onchange=()=>{ S.autoFind=$('autoFind').checked; saveS(); };
   $('auto').checked=S.auto; $('auto').onchange=()=>{ S.auto=$('auto').checked; saveS(); };
@@ -233,7 +261,7 @@ async function startCam(){
     requestAnimationFrame(loop);
   }catch(e){ toast('Kunde inte starta kameran: '+e.message); }
 }
-function stopCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; $('btnCam').textContent='Starta kamera'; $('btnCam').classList.add('pri'); setStatus('Ingen kamera',''); try{ wakeLock&&wakeLock.release(); }catch(e){} }
+function stopCam(){ octx.clearRect(0,0,ov.width,ov.height); lastDigits=[]; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; $('btnCam').textContent='Starta kamera'; $('btnCam').classList.add('pri'); setStatus('Ingen kamera',''); try{ wakeLock&&wakeLock.release(); }catch(e){} }
 $('btnCam').onclick=()=> stream ? stopCam() : startCam();
 document.addEventListener('visibilitychange', async()=>{ if(document.visibilityState==='visible' && stream && 'wakeLock' in navigator){ try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
 
@@ -447,29 +475,33 @@ function zip(files){
   return new Blob([...parts, ...cd, new Uint8Array(end.buffer)], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-function colL(i){ return String.fromCharCode(65+i); }
-function buildXlsx(lock, dosor, sheetName, dateStr){
-  const rows=[]; const cell=(r,c,v)=>{
-    const ref=colL(c)+r;
+function colL(i){ return String.fromCharCode(65+i); }   // 0=A, 1=B, 2=C
+// Samma upplägg som Tara-filen: namn rad 8, D/L rad 9, vikter från rad 10, medel + summa under
+function buildXlsx(dosor, lock, meta, target){
+  const rows=[];
+  const cell=(r,c,v)=>{ const ref=colL(c)+r;
     if(v==null || v==='') return '';
     if(typeof v==='number') return `<c r="${ref}"><v>${v}</v></c>`;
     if(typeof v==='object' && v.f) return `<c r="${ref}"><f>${esc(v.f)}</f></c>`;
-    return `<c r="${ref}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
-  };
-  const addRow=(r,vals)=>rows.push(`<row r="${r}">${vals.map((v,c)=>cell(r,c,v)).join('')}</row>`);
-  addRow(1,['Datum', dateStr]);
-  addRow(3,['Nr','Lock (g)','Dosor (g)']);
-  const n=Math.max(lock.length,dosor.length);
-  for(let i=0;i<n;i++) addRow(4+i,[i+1, lock[i]??null, dosor[i]??null]);
-  const last=3+Math.max(n,1), s=last+2;
-  addRow(s,  ['Antal', {f:`COUNT(B4:B${last})`}, {f:`COUNT(C4:C${last})`}]);
-  addRow(s+1,['Medel', {f:`AVERAGE(B4:B${last})`}, {f:`AVERAGE(C4:C${last})`}]);
-  addRow(s+2,['Min',   {f:`MIN(B4:B${last})`}, {f:`MIN(C4:C${last})`}]);
-  addRow(s+3,['Max',   {f:`MAX(B4:B${last})`}, {f:`MAX(C4:C${last})`}]);
-  addRow(s+4,['Std.avv.', {f:`STDEV(B4:B${last})`}, {f:`STDEV(C4:C${last})`}]);
+    return `<c r="${ref}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`; };
+  const addRow=(r,vals)=>rows.push(`<row r="${r}">${vals.map((v,i)=>cell(r,1+i,v)).join('')}</row>`);  // börjar i kolumn B
+  const n=Math.max(dosor.length, lock.length, target);
+  const last=9+n, avg=last+1;
+  addRow(1,['Tara, dosor och lock']);
+  addRow(8,[meta.sort||'']);
+  addRow(9,['D','L']);
+  for(let i=0;i<n;i++) addRow(10+i,[dosor[i]??null, lock[i]??null]);
+  addRow(avg,[{f:`AVERAGE(B10:B${last})`},{f:`AVERAGE(C10:C${last})`}]);
+  addRow(avg+1,[{f:`SUM(B${avg}:C${avg})`}]);
+  addRow(avg+2,[meta.sort||'']);
+  addRow(avg+4,[meta.date||'']);
+  addRow(avg+5,['Datum för kontroll']);
+  addRow(avg+6,[meta.an||'']);
+  addRow(avg+7,[meta.id||'']);
   const NS='http://schemas.openxmlformats.org';
-  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS}/spreadsheetml/2006/main"><cols><col min="1" max="1" width="10" customWidth="1"/><col min="2" max="3" width="14" customWidth="1"/></cols><sheetData>${rows.join('')}</sheetData></worksheet>`;
-  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${NS}/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`;
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS}/spreadsheetml/2006/main"><cols><col min="2" max="3" width="12" customWidth="1"/></cols><sheetData>${rows.join('')}</sheetData></worksheet>`;
+  const mon=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][(new Date(meta.date||Date.now())).getMonth()] || 'blad';
+  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${NS}/officeDocument/2006/relationships"><sheets><sheet name="${esc(mon)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`;
   return zip([
     {name:'[Content_Types].xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="${NS}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
     {name:'_rels/.rels', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${NS}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
@@ -482,23 +514,22 @@ function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.ge
 /*XLSX-END*/
 
 $('btnXlsx').onclick=async()=>{
-  const d=new Date(), ds=d.toISOString().slice(0,10), wk=isoWeek(d);
-  const blob=buildXlsx(D.lock, D.dosor, 'Vecka '+wk, ds);
-  const fname=`Lock och dosor v${wk} ${ds}.xlsx`;
+  const blob=buildXlsx(D.dosor, D.lock, D.meta, S.target);
+  const safe=(D.meta.sort||'Tara').replace(/[\\/:*?"<>|]/g,'').trim();
+  const fname=`Tara ${safe} ${D.meta.date||''}.xlsx`.replace(/\s+/g,' ');
   const file=new File([blob], fname, {type:blob.type});
-  try{
-    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:fname}); return; }
-  }catch(e){ if(e.name==='AbortError') return; }
+  try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:fname}); return; } }
+  catch(e){ if(e.name==='AbortError') return; }
   try{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
   catch(e){ toast('Kunde inte spara filen – använd Kopiera istället'); }
 };
 $('btnCopy').onclick=async()=>{
-  const n=Math.max(D.lock.length,D.dosor.length); const lines=[];
-  for(let i=0;i<n;i++) lines.push(fmt(D.lock[i])+'\t'+fmt(D.dosor[i]));
-  try{ await navigator.clipboard.writeText(lines.join('\n')); toast(`Kopierade ${n} rader`); }catch(e){ toast('Kunde inte kopiera'); }
+  const n=Math.max(D.dosor.length,D.lock.length); const lines=[];
+  for(let i=0;i<n;i++) lines.push(fmt(D.dosor[i])+'\t'+fmt(D.lock[i]));
+  try{ await navigator.clipboard.writeText(lines.join('\n')); toast(`Kopierade ${n} rader (D, L)`); }catch(e){ toast('Kunde inte kopiera'); }
 };
 
-bindSet(); render();
+bindSet(); bindMeta(); render();
 </script>
 </body>
 </html>
