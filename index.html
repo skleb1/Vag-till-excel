@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 18</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 19</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -249,7 +249,7 @@ function record(v, force, src){
     logEvent('avvisad', kind, v, med); logSnap('fail',{raw:'avvisad', val:v});
     return false;
   }
-  D[kind].push(v); D.hist.push(kind); lastSaved=v; pend=false;
+  D[kind].push(v); D.hist.push(kind); lastSaved=v; pend=false; ramp=[];
   logEvent('sparad', kind, D[kind].length, v, src||'auto'); logSnap('save', {kind, nr:D[kind].length, val:v, src:src||'auto'});
   if(isDev(v, med)){ beep(500,180); setTimeout(()=>beep(500,180),260); flash();
     toast(`⚠️ ${name} ${D[kind].length}: ${fmt(v)} g – avviker (median ${fmt(med)} g). Sparad.`); }
@@ -592,7 +592,7 @@ function decode(chars){
 // Oläsbara bilder hoppas över (nollställer inget). Vikten räknas som stabil när alla
 // avläsningar senaste sekunden ligger inom ±tolerans. Under minsta vikt => redo för nästa.
 let readEvery=110, procMs=20, smallSince=null;
-let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null, hidStart=null, pend=false;
+let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null, hidStart=null, pend=false, ramp=[];
 function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
 function step(r, now){
   if(!r || !r.ok){
@@ -616,14 +616,29 @@ function step(r, now){
   const fakeZero = small && r.val>=0.2 && refStable!=null && Math.abs(Math.round((refStable%1)*100)/100 - r.val) < 0.015;
   smallCnt = (small && !fakeZero) ? smallCnt+1 : 0;
   if(smallCnt===1) smallSince=now;
-  if(smallCnt>=2 && now-smallSince>=80){ armed=true; redo=false; plat=null; }
+  if(smallCnt>=2 && now-smallSince>=80){ armed=true; redo=false; plat=null; ramp=[]; }
   // Snabbt byte utan att vågen hann visa 0: en ny stabil vikt som skiljer ≥0,05 g från den senast sparade
   // och ligger kvar i 1 sekund räknas som en ny dosa/lock.
+  // Pålägg under bytet: minst 3 avläsningar som stiger upp mot den nya vikten (så ser det ut när något läggs på vågen).
+  // Felläsningar hoppar runt och ger inte ett sådant mönster. Gäller bara när vågen inte hann visa 0.
+  if(!armed && lastSaved!=null && S.motion!==false){
+    const v=r.val;
+    if(!small && v>=1){ const sameDec=Math.abs(Math.round((Math.abs(v)%1)*100)-Math.round((Math.abs(lastSaved)%1)*100))<=1;
+      if(!sameDec && !/^1+$/.test(String(r.raw||'').replace(/\D/g,''))) ramp.push({t:now,v}); }
+    ramp=ramp.filter(p=>now-p.t<=2500);
+    if(stable && !small){
+      const below=ramp.filter(p=>p.v<=r.val-0.3);   // stegen ska ligga under den nya vikten
+      let n=0, last=-1;
+      for(const p of below){ if(p.v>=last+0.2){ n++; last=p.v; } }
+      const recent=below.length && now-below[below.length-1].t<=2000;
+      if(n>=3 && recent){ armed=true; redo=false; ramp=[]; plat=null; }
+    }
+  }
   let newWeight=false;
   if(!armed && !redo && stable && !small && lastSaved!=null && Math.abs(r.val-lastSaved) >= 0.05-1e-9){
     if(!plat || Math.abs(plat.v-r.val) > S.tol+1e-9) plat={t:now, v:r.val};
     newWeight=true;
-    if(now-plat.t >= 1000){ armed=true; plat=null; }
+    if(now-plat.t >= (S.platMs??400)){ armed=true; plat=null; }
   } else if(!stable) plat=null;
   let saved=null;
   if(stable && !small && armed && S.auto){ saved=r.val; armed=false; }
@@ -779,7 +794,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:18, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:19, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
