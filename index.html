@@ -61,7 +61,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor</h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 3</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -275,7 +275,7 @@ function locateLCD(){
       if(y>0&&m[k-LW]&&!lab[k-LW]){lab[k-LW]=id;stack[sp++]=k-LW;} if(y<LH-1&&m[k+LW]&&!lab[k+LW]){lab[k+LW]=id;stack[sp++]=k+LW;} }
     const bw=x1-x0+1, bh=y1-y0+1, asp=bw/bh;
     if(area>N*0.002 && asp>1.6 && asp<7 && area>0.4*bw*bh && (!best||area>best.area)) best={area,x0,y0,bw,bh}; }
-  if(!best) return null;
+  if(!best) return autoRoi;   // t.ex. släckt bakgrundsbelysning: läs vidare på samma ställe
   const px=1.5/LW, py=best.bh*0.12/LH;   // lite marginal runt displayen
   const nr={x:Math.max(0,best.x0/LW-px), y:Math.max(0,best.y0/LH-py), w:Math.min(1,best.bw/LW+2*px), h:Math.min(1,best.bh/LH+2*py)};
   if(autoRoi && Math.abs(nr.x-autoRoi.x)<0.05 && Math.abs(nr.y-autoRoi.y)<0.05){ for(const k of ['x','y','w','h']) autoRoi[k]=autoRoi[k]*0.3+nr[k]*0.7; }
