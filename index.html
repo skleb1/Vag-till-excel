@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 19</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 20</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -168,7 +168,7 @@ const store = {
 };
 
 // ---------- Inställningar & data ----------
-const S = Object.assign({chanMode:'luma',perDigit:false,kMode:'rel',edgeFrac:0.05,autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null,focusMan:false,focusDist:null,wbLock:false,torch:false,copySep:'.'}, store.get('vag_settings7', {}));
+const S = Object.assign({swapMs:150,platMs:400,chanMode:'luma',perDigit:false,kMode:'rel',edgeFrac:0.05,autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null,focusMan:false,focusDist:null,wbLock:false,torch:false,copySep:'.'}, store.get('vag_settings7', {}));
 const newData = () => ({dosor:[], lock:[], mode:'dosor', hist:[]});
 let D = Object.assign(newData(), store.get('vag_data', {}));
 const saveS = () => store.set('vag_settings7', S);
@@ -249,7 +249,7 @@ function record(v, force, src){
     logEvent('avvisad', kind, v, med); logSnap('fail',{raw:'avvisad', val:v});
     return false;
   }
-  D[kind].push(v); D.hist.push(kind); lastSaved=v; pend=false; ramp=[];
+  D[kind].push(v); D.hist.push(kind); lastSaved=v; pend=false; ramp=[]; devAcc=0; lastDevT=null;
   logEvent('sparad', kind, D[kind].length, v, src||'auto'); logSnap('save', {kind, nr:D[kind].length, val:v, src:src||'auto'});
   if(isDev(v, med)){ beep(500,180); setTimeout(()=>beep(500,180),260); flash();
     toast(`⚠️ ${name} ${D[kind].length}: ${fmt(v)} g – avviker (median ${fmt(med)} g). Sparad.`); }
@@ -592,7 +592,7 @@ function decode(chars){
 // Oläsbara bilder hoppas över (nollställer inget). Vikten räknas som stabil när alla
 // avläsningar senaste sekunden ligger inom ±tolerans. Under minsta vikt => redo för nästa.
 let readEvery=110, procMs=20, smallSince=null;
-let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null, hidStart=null, pend=false, ramp=[];
+let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null, hidStart=null, pend=false, ramp=[], devAcc=0, lastDevT=null;
 function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
 function step(r, now){
   if(!r || !r.ok){
@@ -633,6 +633,15 @@ function step(r, now){
       const recent=below.length && now-below[below.length-1].t<=2000;
       if(n>=3 && recent){ armed=true; redo=false; ramp=[]; plat=null; }
     }
+  }
+  // Direkt byte utan 0: vikten har på riktigt avvikit (≥0,3 g, inte felläsningsmönster) i sammanlagt ≥ S.swapMs sedan förra sparningen
+  if(!armed && lastSaved!=null && S.swapMs>0){
+    const v=r.val, dev=Math.abs(v-lastSaved);
+    const sameDec=Math.abs(Math.round((Math.abs(v)%1)*100)-Math.round((Math.abs(lastSaved)%1)*100))<=1;
+    const onesOnly=/^1+$/.test(String(r.raw||'').replace(/\D/g,''));
+    const plausible = v>=0 && v<=1.5*Math.abs(lastSaved) && !(sameDec && Math.abs(v)>=0.2);   // rimlig vikt under ett byte, inte en tappad siffra (0,52 när 8,52 ligger på)
+    if(dev>=0.3 && !onesOnly && plausible){ if(lastDevT!=null) devAcc+=Math.min(200, now-lastDevT); lastDevT=now; } else lastDevT=null;
+    if(devAcc>=S.swapMs && stable && !small){ armed=true; redo=false; plat=null; devAcc=0; }
   }
   let newWeight=false;
   if(!armed && !redo && stable && !small && lastSaved!=null && Math.abs(r.val-lastSaved) >= 0.05-1e-9){
@@ -794,7 +803,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:19, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:20, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
