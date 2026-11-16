@@ -58,11 +58,12 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .dlg{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
 .dlg.show{display:flex}
 .dlg .card{max-width:420px;width:100%}
+.bk{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:8px 0}.bk div{flex:1;font-size:14px}
 </style>
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 6</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 8</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -84,8 +85,8 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <div id="status">Ingen kamera</div>
   </div>
   <div class="tabs" style="margin-top:10px">
-    <button id="tabDosor" class="on">Dosor<span class="cnt" id="cDosor">0/160</span></button>
-    <button id="tabLock">Lock<span class="cnt" id="cLock">0/160</span></button>
+    <button id="tabDosor" class="on">Dosor<span class="cnt" id="cDosor">0/170</span></button>
+    <button id="tabLock">Lock<span class="cnt" id="cLock">0/170</span></button>
   </div>
   <div class="row" style="margin-top:10px">
     <button id="btnSave" class="pri big">Spara vikten</button>
@@ -108,8 +109,17 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
   </div>
   <div class="mut" style="margin-top:6px">Kopiera ger två kolumner (dosor, lock) med decimalkomma – klicka i rad 10 i D-kolumnen i Excel och klistra in.</div>
   <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>Dosor (g)</th><th>Lock (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
-  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button></div>
+  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button><button id="btnBackup">Återställ backup</button></div>
 </div>
+
+<div class="card">
+  <label class="switch"><input type="checkbox" id="logOn"> Spela in testlogg (för felsökning)</label>
+  <div class="mut" id="logInfo" style="margin:6px 0">Av</div>
+  <div class="row"><button id="btnLog">Exportera logg</button><button id="btnLogClear" style="flex:0 0 auto">Rensa logg</button></div>
+  <div class="mut" style="margin-top:6px">Loggen sparar avläsningar och små bilder av displayen. Ha appen öppen hela tiden medan den spelar in. Exportera när du är klar och skicka filen till Claude.</div>
+</div>
+
+<div class="dlg" id="bkDlg"><div class="card" style="max-height:80vh;overflow:auto"><h3 style="margin:4px 0 8px">Backuper</h3><div id="bkList"></div><div class="row" style="margin-top:10px"><button id="bkClose">Stäng</button></div></div></div>
 
 <div class="card">
 <details id="setDet">
@@ -144,11 +154,24 @@ const store = {
 };
 
 // ---------- Inställningar & data ----------
-const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:160,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null}, store.get('vag_settings6', {}));
+const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null}, store.get('vag_settings7', {}));
 const newData = () => ({dosor:[], lock:[], mode:'dosor', hist:[]});
 let D = Object.assign(newData(), store.get('vag_data', {}));
-const saveS = () => store.set('vag_settings6', S);
+const saveS = () => store.set('vag_settings7', S);
 const saveD = () => store.set('vag_data', D);
+
+// ---------- Backup av vikter ----------
+// Sparas automatiskt: före rensning, före återställning och var 10:e ny vikt. Max 20 st (rensnings-backuper behålls längst).
+function getBackups(){ return store.get('vag_backups', []); }
+function makeBackup(reason){
+  const n=D.dosor.length+D.lock.length; if(!n) return;
+  const b=getBackups(), last=b[b.length-1];
+  const snap={t:Date.now(), reason, dosor:D.dosor.slice(), lock:D.lock.slice(), mode:D.mode};
+  if(last && JSON.stringify([last.dosor,last.lock])===JSON.stringify([snap.dosor,snap.lock])) return;
+  b.push(snap);
+  while(b.length>20){ const i=b.findIndex(x=>x.reason==='auto'); b.splice(i>=0?i:0,1); }
+  store.set('vag_backups', b);
+}
 // Median av en kolumn – används för att markera avvikande vikter (sparas ändå alltid)
 const median = a => { const v=a.filter(x=>x!=null).sort((x,y)=>x-y); return v.length ? v[v.length>>1] : null; };
 const isDev = (v, med) => v!=null && med!=null && Math.abs(v-med) > S.dev + 1e-9;
@@ -190,6 +213,8 @@ function render(){
 $('tbody').addEventListener('change', e=>{
   const el=e.target; if(!el.dataset.k) return;
   const arr=D[el.dataset.k], i=+el.dataset.i, v=parseNum(el.value);
+  if(v==null && arr[i]!=null) makeBackup('före borttag');
+  logEvent('ändrad', el.dataset.k, i+1, arr[i]??null, v);
   if(v==null){ if(i===arr.length-1) arr.pop(); else if(i<arr.length) arr[i]=null; }
   else { while(arr.length<i) arr.push(null); arr[i]=v;
     const others=arr.filter((x,j)=>j!==i), med=others.length>=10?median(others):null;
@@ -197,12 +222,13 @@ $('tbody').addEventListener('change', e=>{
   saveD(); render();
 });
 
-function record(v, force){
+function record(v, force, src){
   if(v==null) return false;
   const kind = D.mode, name = kind==='dosor' ? 'Dosa' : 'Lock';
   if(D[kind].length>=S.target && !force){ beep(300,350); toast(`Redan ${S.target} ${kind==='dosor'?'dosor':'lock'} – byt flik eller tryck "Spara vikten"`); return false; }
   const med = D[kind].length>=10 ? median(D[kind]) : null;
   D[kind].push(v); D.hist.push(kind);
+  logEvent('sparad', kind, D[kind].length, v, src||'auto'); logSnap('save', {kind, nr:D[kind].length, val:v, src:src||'auto'});
   if(isDev(v, med)){ beep(500,180); setTimeout(()=>beep(500,180),260); flash();
     toast(`⚠️ ${name} ${D[kind].length}: ${fmt(v)} g – avviker (median ${fmt(med)} g). Sparad.`); }
   else { beep(); flash(); toast(`${name} ${D[kind].length}: ${fmt(v)} g`); }
@@ -211,16 +237,29 @@ function record(v, force){
   } else if(D.lock.length>=S.target && D.dosor.length>=S.target){
     setTimeout(()=>{ beep(800,400); toast('Klart! Kopiera eller exportera till Excel.'); },1200);
   }
+  if((D.dosor.length+D.lock.length)%10===0) makeBackup('auto');
   saveD(); render(); return true;
 }
-$('tabLock').onclick=()=>{ D.mode='lock'; saveD(); render(); };
-$('tabDosor').onclick=()=>{ D.mode='dosor'; saveD(); render(); };
-$('btnUndo').onclick=()=>{ const k=D.hist.pop() || D.mode; const a=D[k]; if(a.length){ const v=a.pop(); D.mode=k; saveD(); render(); toast(`Tog bort ${k==='dosor'?'dosa':'lock'} ${fmt(v)} g`); armed=false; } };
-$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val, true); armed=false; smallCnt=0; } else toast('Ingen giltig avläsning just nu'); };
-const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v, true); $('manual').value=''; } };
+$('tabLock').onclick=()=>{ logEvent('flik','lock'); D.mode='lock'; saveD(); render(); };
+$('tabDosor').onclick=()=>{ logEvent('flik','dosor'); D.mode='dosor'; saveD(); render(); };
+$('btnUndo').onclick=()=>{ const k=D.hist.pop() || D.mode; const a=D[k]; if(a.length){ const v=a.pop(); D.mode=k; logEvent('ångra', k, a.length+1, v); saveD(); render(); toast(`Tog bort ${k==='dosor'?'dosa':'lock'} ${fmt(v)} g`); armed=false; } };
+$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val, true, 'knapp'); armed=false; smallCnt=0; } else toast('Ingen giltig avläsning just nu'); };
+const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v, true, 'hand'); $('manual').value=''; } };
 $('btnManual').onclick=addManual;
 $('manual').addEventListener('keydown',e=>{ if(e.key==='Enter') addManual(); });
-$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny vecka? Exportera först om du inte redan gjort det.')){ D=newData(); saveD(); render(); } };
+$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny vecka? En backup sparas först, så du kan få tillbaka dem med "Återställ backup".')){ makeBackup('före rensning'); D=newData(); saveD(); render(); logEvent('rensa'); } };
+function showBackups(){
+  const b=getBackups().slice().reverse(), tf=t=>new Date(t).toLocaleString('sv-SE',{dateStyle:'short',timeStyle:'short'});
+  $('bkList').innerHTML = b.length ? b.map((x,i)=>`<div class="bk"><div><b>${tf(x.t)}</b><br>${x.dosor.length} dosor, ${x.lock.length} lock · ${x.reason}</div><button data-i="${i}">Återställ</button></div>`).join('') : '<div class="mut">Inga backuper än.</div>';
+  $('bkList').querySelectorAll('button').forEach(btn=>btn.onclick=async()=>{
+    const x=b[+btn.dataset.i]; $('bkDlg').classList.remove('show');
+    if(await ask(`Återställa ${x.dosor.length} dosor och ${x.lock.length} lock från ${tf(x.t)}? Det du har nu sparas som en backup först.`)){
+      makeBackup('före återställning'); D=Object.assign(newData(),{dosor:x.dosor.slice(),lock:x.lock.slice(),mode:x.mode||'dosor'}); saveD(); render(); toast('Backup återställd'); logEvent('återställ',tf(x.t)); }
+  });
+  $('bkDlg').classList.add('show');
+}
+$('btnBackup').onclick=showBackups;
+$('bkClose').onclick=()=>$('bkDlg').classList.remove('show');
 
 // ---------- Inställningsfält ----------
 function bindSet(){
@@ -434,8 +473,9 @@ function loop(ts){
   if(!stream) return;
   drawOverlay();
   if(ts-lastT>110){ lastT=ts;
-    const res=step(readDisplay(), performance.now());
-    if(res){ $('value').textContent=res.disp; setStatus(...res.status); if(res.saved!=null) record(res.saved); }
+    const now=performance.now(), r=readDisplay(), res=step(r, now);
+    if(LOG.on) logFrame(r, res, now);
+    if(res){ $('value').textContent=res.disp; setStatus(...res.status); if(res.saved!=null) record(res.saved, false, 'auto'); }
   }
   requestAnimationFrame(loop);
 }
@@ -528,6 +568,53 @@ $('btnCopy').onclick=async()=>{
   for(let i=0;i<n;i++) lines.push(fmt(D.dosor[i])+'\t'+fmt(D.lock[i]));
   try{ await navigator.clipboard.writeText(lines.join('\n')); toast(`Kopierade ${n} rader (dosor, lock)`); }catch(e){ toast('Kunde inte kopiera'); }
 };
+
+// ---------- Testlogg ----------
+const LOG={on:false, start:0, wall:0, frames:[], events:[], snaps:[], cnt:{fail:0,save:0,ok:0,full:0}, last:{fail:-1e9,ok:-1e9,full:-1e9}, meta:{}};
+const SNAPMAX={fail:300, save:400, ok:120, full:40};
+function logT(){ return Math.round(performance.now()-LOG.start); }
+function logEvent(type, ...a){ if(LOG.on) LOG.events.push([logT(), type, ...a]); }
+function logFrame(r, res, now){
+  if(LOG.frames.length<40000) LOG.frames.push([Math.round(now-LOG.start), r ? (r.ok ? r.val : '?') : '-', r ? r.raw : '', res ? res.status[0] : '(hoppar)',
+    S.roi ? [S.roi.x,S.roi.y,S.roi.w,S.roi.h].map(v=>+v.toFixed(4)) : null]);
+  if(r && !r.ok && now-LOG.last.fail>1500){ LOG.last.fail=now; logSnap('fail',{raw:r.raw}); }
+  if(r && r.ok && !r.blank && now-LOG.last.ok>10000){ LOG.last.ok=now; logSnap('ok',{raw:r.raw,val:r.val}); }
+  if(now-LOG.last.full>30000){ LOG.last.full=now; logSnap('full',{}); }
+}
+function logSnap(type, info){
+  if(!LOG.on || LOG.cnt[type]>=SNAPMAX[type]) return;
+  try{
+    let img;
+    if(type==='full'){ const c=document.createElement('canvas'), vw=video.videoWidth, vh=video.videoHeight; if(!vw) return;
+      c.width=480; c.height=Math.round(480*vh/vw); c.getContext('2d').drawImage(video,0,0,c.width,c.height); img=c.toDataURL('image/jpeg',0.7); }
+    else { if(!work.width) return; img=work.toDataURL('image/jpeg',0.85); }   // utsnittet av displayen som avlästes
+    LOG.cnt[type]++; LOG.snaps.push(Object.assign({t:logT(), type, roi:S.roi?{...S.roi}:null, img}, info));
+  }catch(e){}
+}
+function logInfo(){ $('logInfo').textContent = LOG.on||LOG.frames.length ? `${LOG.on?'Spelar in':'Pausad'} · ${Math.round((LOG.on?performance.now()-LOG.start:LOG.dur||0)/60000)} min · ${LOG.frames.length} avläsningar · ${LOG.snaps.length} bilder · ${LOG.events.filter(e=>e[1]==='sparad').length} sparade` : 'Av'; }
+setInterval(()=>{ if(LOG.on || LOG.frames.length) logInfo(); }, 1000);
+$('logOn').onchange=()=>{
+  if($('logOn').checked){ if(!LOG.frames.length){ LOG.start=performance.now(); LOG.wall=Date.now(); }
+    LOG.on=true; LOG.meta={ua:navigator.userAgent, screen:[screen.width,screen.height,devicePixelRatio]};
+    logEvent('start', JSON.parse(JSON.stringify(S))); logSnap('full',{}); }
+  else { logEvent('stopp'); LOG.on=false; LOG.dur=performance.now()-LOG.start; }
+  logInfo();
+};
+$('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.assign(LOG,{frames:[],events:[],snaps:[],cnt:{fail:0,save:0,ok:0,full:0},last:{fail:-1e9,ok:-1e9,full:-1e9}}); if(LOG.on){ LOG.start=performance.now(); LOG.wall=Date.now(); } logInfo(); } };
+$('btnLog').onclick=async()=>{
+  if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
+  let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
+  const out={app:'vagavlasare', version:8, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+    video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
+    framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
+  const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
+  const d=new Date(), fname=`vaglogg-${d.toISOString().slice(0,10)}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.json`;
+  const file=new File([blob], fname, {type:'application/json'});
+  try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:fname}); return; } }catch(e){ if(e.name==='AbortError') return; }
+  try{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+  catch(e){ toast('Kunde inte spara loggen'); }
+};
+window.addEventListener('beforeunload', e=>{ if(LOG.on && LOG.frames.length){ e.preventDefault(); e.returnValue=''; } });
 
 bindSet(); render();
 </script>
