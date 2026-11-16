@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vågläsare">
+<meta name="theme-color" content="#111418">
+<title>Vågläsare – Lock & dosor</title>
+<style>
+:root{--bg:#111418;--card:#1b2027;--line:#2c333d;--txt:#e9edf2;--mut:#8b96a5;--acc:#3ba776;--warn:#e0a63a;--bad:#d9534f;--blue:#4a8fe7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.35 -apple-system,system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{max-width:720px;margin:0 auto;padding:10px}
+h1{font-size:18px;margin:4px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+#camWrap{position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;touch-action:none}
+#video{display:block;width:100%;height:auto}
+#overlay{position:absolute;inset:0;width:100%;height:100%}
+#camHint{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:13px;color:#fff;text-shadow:0 1px 3px #000;pointer-events:none}
+button,select,input{font:inherit;color:var(--txt)}
+button{background:#2a313b;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.big{font-size:18px;padding:14px}
+button:active{transform:scale(.98)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 auto}
+.reading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#value{font:700 52px/1 ui-monospace,Menlo,monospace;letter-spacing:1px}
+#status{font-size:14px;padding:4px 10px;border-radius:999px;background:#2a313b;white-space:nowrap}
+#status.stable{background:var(--acc)}#status.wait{background:var(--warn);color:#000}#status.bad{background:var(--bad)}
+.tabs{display:flex;gap:8px}
+.tabs button{flex:1;font-size:17px}
+.tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.cnt{display:block;font-size:13px;font-weight:400;opacity:.9}
+label{font-size:14px;color:var(--mut)}
+.set{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.set div{display:flex;flex-direction:column;gap:4px}
+.set input,.set select{background:#0e1115;border:1px solid var(--line);border-radius:8px;padding:8px}
+input[type=range]{padding:0}
+.switch{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--txt)}
+.switch input{width:22px;height:22px}
+#dbg{width:100%;image-rendering:pixelated;border-radius:6px;background:#000;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:right}
+th:first-child,td:first-child{text-align:left;color:var(--mut);width:48px}
+td input{width:100%;background:transparent;border:0;text-align:right;padding:6px 2px;color:var(--txt)}
+td input:focus{background:#0e1115;outline:1px solid var(--blue)}
+td.cur{outline:2px solid var(--blue);outline-offset:-2px}
+#tbl{max-height:50vh;overflow:auto}
+.mut{color:var(--mut);font-size:13px}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+#toast.show{opacity:1}
+#flash{position:fixed;inset:0;background:var(--acc);opacity:0;pointer-events:none;transition:opacity .35s}
+details summary{cursor:pointer;font-weight:600;padding:4px 0}
+.dlg{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
+.dlg.show{display:flex}
+.dlg .card{max-width:420px;width:100%}
+</style>
+</head>
+<body>
+<main>
+<h1>⚖️ Vågläsare – lock & dosor</h1>
+
+<div class="card">
+  <div id="camWrap">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div id="camHint">Tryck "Starta kamera"</div>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnCam" class="pri">Starta kamera</button>
+    <button id="btnRoi">Markera siffrorna</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="reading">
+    <div id="value">–</div>
+    <div id="status">Ingen kamera</div>
+  </div>
+  <div class="tabs" style="margin-top:10px">
+    <button id="tabLock" class="on">Lock<span class="cnt" id="cLock">0/170</span></button>
+    <button id="tabDosor">Dosor<span class="cnt" id="cDosor">0/170</span></button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnSave" class="pri big">Spara vikten</button>
+    <button id="btnUndo" class="big" style="flex:0 0 auto">↶ Ångra</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label class="switch"><input type="checkbox" id="auto" checked> Spara automatiskt när vikten är stabil</label>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <input id="manual" inputmode="decimal" placeholder="Skriv vikt för hand…" style="background:#0e1115;border:1px solid var(--line);border-radius:10px;padding:10px">
+    <button id="btnManual" style="flex:0 0 auto">Lägg till</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <button id="btnXlsx" class="pri">Exportera Excel</button>
+    <button id="btnCopy">Kopiera till urklipp</button>
+  </div>
+  <div class="mut" style="margin-top:6px">Kopiera ger två kolumner (lock, dosor) med decimalkomma – klistra in direkt i din befintliga Excel-fil.</div>
+  <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>Lock (g)</th><th>Dosor (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
+  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button></div>
+</div>
+
+<div class="card">
+<details id="setDet">
+  <summary>Inställningar & kalibrering</summary>
+  <div class="set" style="margin-top:8px">
+    <div><label>Antal siffror på displayen</label><input id="sDigits" type="number" min="1" max="8"></div>
+    <div><label>Antal decimaler</label><input id="sDec" type="number" min="0" max="4"></div>
+    <div><label>Lutning på siffrorna (°)</label><input id="sSlant" type="range" min="-5" max="20" step="1"><span class="mut" id="vSlant"></span></div>
+    <div><label>Känslighet segment</label><input id="sThr" type="range" min="0.15" max="0.8" step="0.01"><span class="mut" id="vThr"></span></div>
+    <div><label>Mellanrum mellan siffror</label><input id="sGap" type="range" min="0" max="0.5" step="0.01"><span class="mut" id="vGap"></span></div>
+    <div><label>Stabil i (sekunder)</label><input id="sStable" type="number" min="0.3" max="5" step="0.1"></div>
+    <div><label>Minsta vikt som räknas (g)</label><input id="sMin" type="number" min="0" step="0.1"></div>
+    <div><label>Antal per sort</label><input id="sTarget" type="number" min="1" max="2000"></div>
+    <div><label>Max skillnad för "stabil" (g)</label><input id="sTol" type="number" min="0" step="0.1"></div>
+    <div style="justify-content:flex-end"><label class="switch"><input type="checkbox" id="sInv"> Ljusa siffror på mörk bakgrund</label></div>
+  </div>
+  <div class="mut" style="margin-top:8px">Förhandsvisning: så här ser appen siffrorna. Grön ruta = segment tänt, röd = släckt.</div>
+  <canvas id="dbg"></canvas>
+  <div class="mut" id="rawRead"></div>
+</details>
+</div>
+</main>
+
+<div id="toast"></div>
+<div id="flash"></div>
+<div class="dlg" id="dlg"><div class="card"><div id="dlgText" style="margin-bottom:12px"></div><div class="row"><button id="dlgNo">Avbryt</button><button id="dlgYes" class="pri">OK</button></div></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+// ---------- Inställningar & data ----------
+const S = Object.assign({roi:null,digits:4,decimals:1,slant:8,thr:0.4,gap:0.12,stableSec:1.0,minW:1,target:170,tol:0,invert:false,auto:true}, store.get('vag_settings', {}));
+let D = store.get('vag_data', {lock:[], dosor:[], mode:'lock'});
+const saveS = () => store.set('vag_settings', S);
+const saveD = () => store.set('vag_data', D);
+
+// ---------- UI-hjälp ----------
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),1800); }
+function flash(){ const f=$('flash'); f.style.opacity=.35; setTimeout(()=>f.style.opacity=0,120); }
+let actx=null;
+function beep(freq=1200, ms=90){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain(); o.frequency.value=freq; o.connect(g); g.connect(actx.destination);
+    g.gain.value=.15; o.start(); o.stop(actx.currentTime+ms/1000); }catch(e){}
+  try{ navigator.vibrate && navigator.vibrate(60); }catch(e){}
+}
+function ask(text){ return new Promise(res=>{ $('dlgText').textContent=text; $('dlg').classList.add('show');
+  const done=v=>{ $('dlg').classList.remove('show'); $('dlgYes').onclick=$('dlgNo').onclick=null; res(v); };
+  $('dlgYes').onclick=()=>done(true); $('dlgNo').onclick=()=>done(false); }); }
+const fmt = v => (v==null || isNaN(v)) ? '' : v.toFixed(S.decimals).replace('.', ',');
+const parseNum = s => { const v = parseFloat(String(s).replace(',', '.').replace(/[^0-9.\-]/g,'')); return isNaN(v) ? null : v; };
+
+// ---------- Tabell ----------
+function render(){
+  $('cLock').textContent = `${D.lock.length}/${S.target}`;
+  $('cDosor').textContent = `${D.dosor.length}/${S.target}`;
+  $('tabLock').classList.toggle('on', D.mode==='lock');
+  $('tabDosor').classList.toggle('on', D.mode==='dosor');
+  const n = Math.max(S.target, D.lock.length, D.dosor.length);
+  let h = '';
+  for(let i=0;i<n;i++){
+    const cl = (D.mode==='lock' && i===D.lock.length) ? ' class="cur"' : '';
+    const cd = (D.mode==='dosor' && i===D.dosor.length) ? ' class="cur"' : '';
+    h += `<tr><td>${i+1}</td><td${cl}><input data-k="lock" data-i="${i}" inputmode="decimal" value="${fmt(D.lock[i])}"></td><td${cd}><input data-k="dosor" data-i="${i}" inputmode="decimal" value="${fmt(D.dosor[i])}"></td></tr>`;
+  }
+  $('tbody').innerHTML = h;
+  const cur = $('tbody').querySelector('td.cur');
+  if(cur){ const box=$('tbl'); const r=cur.parentElement; if(r.offsetTop < box.scrollTop || r.offsetTop > box.scrollTop+box.clientHeight-40) box.scrollTop = r.offsetTop - box.clientHeight/2; }
+}
+$('tbody').addEventListener('change', e=>{
+  const el=e.target; if(!el.dataset.k) return;
+  const arr=D[el.dataset.k], i=+el.dataset.i, v=parseNum(el.value);
+  if(v==null){ if(i===arr.length-1) arr.pop(); else if(i<arr.length) arr[i]=null; }
+  else { while(arr.length<i) arr.push(null); arr[i]=v; }
+  saveD(); render();
+});
+
+function record(v){
+  if(v==null) return;
+  D[D.mode].push(v);
+  beep(); flash(); toast(`${D.mode==='lock'?'Lock':'Dosa'} ${D[D.mode].length}: ${fmt(v)} g`);
+  if(D.mode==='lock' && D.lock.length>=S.target && D.dosor.length<S.target){
+    D.mode='dosor'; setTimeout(()=>{ beep(800,250); toast('Alla lock klara – nu dosor!'); },400);
+  } else if(D.lock.length>=S.target && D.dosor.length>=S.target){
+    setTimeout(()=>{ beep(800,400); toast('Klart! Exportera till Excel.'); },400);
+  }
+  saveD(); render();
+}
+$('tabLock').onclick=()=>{ D.mode='lock'; saveD(); render(); };
+$('tabDosor').onclick=()=>{ D.mode='dosor'; saveD(); render(); };
+$('btnUndo').onclick=()=>{ const a=D[D.mode]; if(a.length){ const v=a.pop(); saveD(); render(); toast(`Tog bort ${fmt(v)} g`); armed=false; } };
+$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val); armed=false; } else toast('Ingen giltig avläsning just nu'); };
+const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v); $('manual').value=''; } };
+$('btnManual').onclick=addManual;
+$('manual').addEventListener('keydown',e=>{ if(e.key==='Enter') addManual(); });
+$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny vecka? Exportera först om du inte redan gjort det.')){ D={lock:[],dosor:[],mode:'lock'}; saveD(); render(); } };
+
+// ---------- Inställningsfält ----------
+function bindSet(){
+  const map=[['sDigits','digits',parseInt],['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sThr','thr',parseFloat],['sGap','gap',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat]];
+  for(const [id,k,p] of map){ const el=$(id); el.value=S[k]; el.addEventListener('input',()=>{ const v=p(el.value); if(!isNaN(v)){ S[k]=v; saveS(); showVals(); if(k==='target'||k==='decimals') render(); } }); }
+  $('sInv').checked=S.invert; $('sInv').onchange=()=>{ S.invert=$('sInv').checked; saveS(); };
+  $('auto').checked=S.auto; $('auto').onchange=()=>{ S.auto=$('auto').checked; saveS(); };
+  showVals();
+}
+function showVals(){ $('vSlant').textContent=S.slant+'°'; $('vThr').textContent=S.thr.toFixed(2); $('vGap').textContent=S.gap.toFixed(2); }
+
+// ---------- Kamera ----------
+const video=$('video'), ov=$('overlay'), octx=ov.getContext('2d');
+let stream=null, wakeLock=null;
+async function startCam(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('Kameran kräver https – öppna sidan via din https-adress'); $('camHint').textContent='Kameran kräver att sidan öppnas via https'; return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}});
+    video.srcObject=stream; await video.play();
+    $('btnCam').textContent='Stoppa kamera'; $('btnCam').classList.remove('pri');
+    $('camHint').textContent = S.roi ? '' : 'Tryck "Markera siffrorna" och dra en ruta runt siffrorna';
+    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    requestAnimationFrame(loop);
+  }catch(e){ toast('Kunde inte starta kameran: '+e.message); }
+}
+function stopCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; $('btnCam').textContent='Starta kamera'; $('btnCam').classList.add('pri'); setStatus('Ingen kamera',''); try{ wakeLock&&wakeLock.release(); }catch(e){} }
+$('btnCam').onclick=()=> stream ? stopCam() : startCam();
+document.addEventListener('visibilitychange', async()=>{ if(document.visibilityState==='visible' && stream && 'wakeLock' in navigator){ try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
+
+// ---------- Markera område ----------
+let roiMode=false, drag=null;
+$('btnRoi').onclick=()=>{ if(!stream){ toast('Starta kameran först'); return; } roiMode=true; $('camHint').textContent='Dra med fingret runt ALLA siffror på displayen'; $('btnRoi').classList.add('pri'); };
+function pt(e){ const r=ov.getBoundingClientRect(); return {x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)), y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}; }
+ov.addEventListener('pointerdown',e=>{ if(!roiMode) return; e.preventDefault(); ov.setPointerCapture(e.pointerId); drag={a:pt(e),b:pt(e)}; });
+ov.addEventListener('pointermove',e=>{ if(drag){ e.preventDefault(); drag.b=pt(e); } });
+ov.addEventListener('pointerup',e=>{ if(!drag) return; const {a,b}=drag; drag=null;
+  const r={x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), w:Math.abs(a.x-b.x), h:Math.abs(a.y-b.y)};
+  if(r.w>0.03 && r.h>0.02){ S.roi=r; saveS(); roiMode=false; $('btnRoi').classList.remove('pri'); $('camHint').textContent=''; toast('Område sparat. Justera antal siffror i inställningar vid behov.'); }
+});
+
+// ---------- Sjusegmentsavläsning ----------
+// segment: a b c d e f g  (cx, cy i cellen, 0–1; horisontell?)
+const SEG=[[.5,.07,1],[.86,.28,0],[.86,.72,0],[.5,.93,1],[.14,.72,0],[.14,.28,0],[.5,.5,1]];
+const CODES={ '1111110':'0','0110000':'1','0100000':'1','0010000':'1','0000110':'1','1101101':'2','1111001':'3','0110011':'4','1011011':'5','1011111':'6','0011111':'6','1110000':'7','1110010':'7','1111111':'8','1111011':'9','1110011':'9','0000000':' ','0000001':'-' };
+const work=document.createElement('canvas'), wctx=work.getContext('2d',{willReadFrequently:true});
+const dbg=$('dbg'), dctx=dbg.getContext('2d');
+
+function otsu(g){
+  const hist=new Array(256).fill(0); for(const v of g) hist[v]++;
+  const tot=g.length; let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sB=0,wB=0,best=0,th=127;
+  for(let i=0;i<256;i++){ wB+=hist[i]; if(!wB) continue; const wF=tot-wB; if(!wF) break; sB+=i*hist[i];
+    const mB=sB/wB, mF=(sum-sB)/wF, v=wB*wF*(mB-mF)*(mB-mF); if(v>best){best=v;th=i;} }
+  return th;
+}
+
+function readDisplay(){
+  const vw=video.videoWidth, vh=video.videoHeight, r=S.roi;
+  if(!vw || !r) return null;
+  const sx=r.x*vw, sy=r.y*vh, sw=r.w*vw, sh=r.h*vh;
+  const W=360, H=Math.max(30, Math.round(W*sh/sw));
+  work.width=W; work.height=H;
+  wctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+  const px=wctx.getImageData(0,0,W,H).data;
+  const g=new Uint8Array(W*H);
+  for(let i=0,j=0;j<g.length;i+=4,j++) g[j]=(px[i]*.299+px[i+1]*.587+px[i+2]*.114)|0;
+  const th=otsu(g);
+  const bin=new Uint8Array(W*H);
+  for(let j=0;j<g.length;j++) bin[j]= S.invert ? (g[j]>th?1:0) : (g[j]<th?1:0);
+  const n=Math.max(1,S.digits|0), cw=W/n, slantPx=Math.tan(S.slant*Math.PI/180)*H;
+  const boxes=[]; let chars='';
+  for(let d=0; d<n; d++){
+    const xi=d*cw + cw*S.gap/2, wi=cw*(1-S.gap);
+    let code='';
+    for(const [cx,cy,hor] of SEG){
+      const cxp=xi+cx*wi+(0.5-cy)*slantPx, cyp=cy*H;
+      const hw= hor? .22*wi : .07*wi, hh= hor? .045*H : .12*H;
+      const x0=Math.max(0,Math.round(cxp-hw)), x1=Math.min(W-1,Math.round(cxp+hw));
+      const y0=Math.max(0,Math.round(cyp-hh)), y1=Math.min(H-1,Math.round(cyp+hh));
+      let on=0,cnt=0; for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){ on+=bin[y*W+x]; cnt++; }
+      const isOn = cnt>0 && on/cnt > S.thr;
+      code += isOn?'1':'0';
+      boxes.push([x0,y0,x1-x0+1,y1-y0+1,isOn]);
+    }
+    chars += (code in CODES) ? CODES[code] : '?';
+  }
+  // ritning av förhandsvisning
+  if($('setDet').open){
+    dbg.width=W; dbg.height=H;
+    const im=dctx.createImageData(W,H);
+    for(let j=0;j<bin.length;j++){ const c=bin[j]?20:235; im.data[j*4]=im.data[j*4+1]=im.data[j*4+2]=c; im.data[j*4+3]=255; }
+    dctx.putImageData(im,0,0);
+    for(const [x,y,w,h,on] of boxes){ dctx.strokeStyle=on?'#2ecc71':'#e74c3c'; dctx.lineWidth=1.5; dctx.strokeRect(x+.5,y+.5,w,h); }
+    dctx.strokeStyle='#4a8fe7'; for(let d=1; d<n; d++){ dctx.beginPath(); dctx.moveTo(d*cw,0); dctx.lineTo(d*cw,H); dctx.stroke(); }
+    $('rawRead').textContent='Rå avläsning: "'+chars+'"';
+  }
+  return decode(chars);
+}
+
+function decode(chars){
+  if(chars.includes('?')) return {ok:false, raw:chars};
+  const t=chars.trim();
+  if(t==='') return {ok:true, val:0, blank:true, raw:chars};
+  let neg=false, s=t;
+  if(s[0]==='-'){ neg=true; s=s.slice(1).trim(); }
+  if(!/^\d+$/.test(s)) return {ok:false, raw:chars};
+  let v=parseInt(s,10)/Math.pow(10,S.decimals); if(neg) v=-v;
+  return {ok:true, val:+v.toFixed(S.decimals), raw:chars};
+}
+
+// ---------- Stabilitet & autosparning ----------
+let hist=[], armed=true, cur={val:null}, lastT=0;
+function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
+function loop(ts){
+  if(!stream) return;
+  drawOverlay();
+  if(ts-lastT>110){ lastT=ts;
+    const r=readDisplay();
+    if(!S.roi){ setStatus('Markera siffrorna','wait'); }
+    else if(!r || !r.ok){ hist=[]; cur.val=null; $('value').textContent='?'; setStatus('Kan inte läsa','bad'); }
+    else{
+      const now=performance.now();
+      hist.push({t:now,v:r.val}); hist=hist.filter(h=>now-h.t<=S.stableSec*1000+150);
+      const span = hist.length ? now-hist[0].t : 0;
+      const stable = span>=S.stableSec*1000*0.9 && hist.length>=3 && hist.every(h=>Math.abs(h.v-r.val)<=S.tol+1e-9);
+      cur.val = r.blank ? null : r.val;
+      $('value').textContent = r.blank ? '–' : fmt(r.val);
+      const small = Math.abs(r.val) < S.minW;
+      if(stable && small) armed=true;
+      if(stable && !small){
+        if(armed && S.auto){ record(r.val); armed=false; }
+        setStatus(armed ? 'Stabil' : 'Sparad – lyft av','stable');
+      } else if(small) setStatus('Lägg på nästa','');
+      else setStatus('Väntar…','wait');
+    }
+  }
+  requestAnimationFrame(loop);
+}
+function drawOverlay(){
+  const w=ov.clientWidth, h=ov.clientHeight, dpr=window.devicePixelRatio||1;
+  if(ov.width!==Math.round(w*dpr)){ ov.width=Math.round(w*dpr); ov.height=Math.round(h*dpr); }
+  octx.setTransform(dpr,0,0,dpr,0,0); octx.clearRect(0,0,w,h);
+  const r = drag ? {x:Math.min(drag.a.x,drag.b.x), y:Math.min(drag.a.y,drag.b.y), w:Math.abs(drag.a.x-drag.b.x), h:Math.abs(drag.a.y-drag.b.y)} : S.roi;
+  if(!r) return;
+  octx.strokeStyle='#3ba776'; octx.lineWidth=2; octx.strokeRect(r.x*w, r.y*h, r.w*w, r.h*h);
+  if(!drag){ const n=S.digits; octx.strokeStyle='rgba(74,143,231,.8)'; octx.lineWidth=1;
+    for(let d=1; d<n; d++){ const x=(r.x+r.w*d/n)*w; octx.beginPath(); octx.moveTo(x,r.y*h); octx.lineTo(x,(r.y+r.h)*h); octx.stroke(); } }
+}
+
+/*XLSX-START*/
+const CRC=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0; } return t; })();
+function crc32(b){ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=CRC[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zip(files){
+  const enc=new TextEncoder(), parts=[], cd=[]; let off=0;
+  for(const f of files){
+    const name=enc.encode(f.name), data=typeof f.data==='string'?enc.encode(f.data):f.data, crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true); lh.setUint16(8,0,true);
+    lh.setUint16(10,0,true); lh.setUint16(12,0x21,true); lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true);
+    lh.setUint32(22,data.length,true); lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true); ch.setUint16(10,0,true);
+    ch.setUint16(12,0,true); ch.setUint16(14,0x21,true); ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true); ch.setUint16(30,0,true); ch.setUint16(32,0,true); ch.setUint16(34,0,true); ch.setUint16(36,0,true);
+    ch.setUint32(38,0,true); ch.setUint32(42,off,true);
+    cd.push(new Uint8Array(ch.buffer), name);
+    off += 30+name.length+data.length;
+  }
+  let cdSize=0; for(const c of cd) cdSize+=c.length;
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,files.length,true); end.setUint16(10,files.length,true);
+  end.setUint32(12,cdSize,true); end.setUint32(16,off,true);
+  return new Blob([...parts, ...cd, new Uint8Array(end.buffer)], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function colL(i){ return String.fromCharCode(65+i); }
+function buildXlsx(lock, dosor, sheetName, dateStr){
+  const rows=[]; const cell=(r,c,v)=>{
+    const ref=colL(c)+r;
+    if(v==null || v==='') return '';
+    if(typeof v==='number') return `<c r="${ref}"><v>${v}</v></c>`;
+    if(typeof v==='object' && v.f) return `<c r="${ref}"><f>${esc(v.f)}</f></c>`;
+    return `<c r="${ref}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+  };
+  const addRow=(r,vals)=>rows.push(`<row r="${r}">${vals.map((v,c)=>cell(r,c,v)).join('')}</row>`);
+  addRow(1,['Datum', dateStr]);
+  addRow(3,['Nr','Lock (g)','Dosor (g)']);
+  const n=Math.max(lock.length,dosor.length);
+  for(let i=0;i<n;i++) addRow(4+i,[i+1, lock[i]??null, dosor[i]??null]);
+  const last=3+Math.max(n,1), s=last+2;
+  addRow(s,  ['Antal', {f:`COUNT(B4:B${last})`}, {f:`COUNT(C4:C${last})`}]);
+  addRow(s+1,['Medel', {f:`AVERAGE(B4:B${last})`}, {f:`AVERAGE(C4:C${last})`}]);
+  addRow(s+2,['Min',   {f:`MIN(B4:B${last})`}, {f:`MIN(C4:C${last})`}]);
+  addRow(s+3,['Max',   {f:`MAX(B4:B${last})`}, {f:`MAX(C4:C${last})`}]);
+  addRow(s+4,['Std.avv.', {f:`STDEV(B4:B${last})`}, {f:`STDEV(C4:C${last})`}]);
+  const NS='http://schemas.openxmlformats.org';
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS}/spreadsheetml/2006/main"><cols><col min="1" max="1" width="10" customWidth="1"/><col min="2" max="3" width="14" customWidth="1"/></cols><sheetData>${rows.join('')}</sheetData></worksheet>`;
+  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${NS}/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`;
+  return zip([
+    {name:'[Content_Types].xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="${NS}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
+    {name:'_rels/.rels', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${NS}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {name:'xl/workbook.xml', data:wb},
+    {name:'xl/_rels/workbook.xml.rels', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${NS}/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`},
+    {name:'xl/worksheets/sheet1.xml', data:sheet}
+  ]);
+}
+function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day); const y=new Date(Date.UTC(t.getUTCFullYear(),0,1)); return Math.ceil(((t-y)/864e5+1)/7); }
+/*XLSX-END*/
+
+$('btnXlsx').onclick=async()=>{
+  const d=new Date(), ds=d.toISOString().slice(0,10), wk=isoWeek(d);
+  const blob=buildXlsx(D.lock, D.dosor, 'Vecka '+wk, ds);
+  const fname=`Lock och dosor v${wk} ${ds}.xlsx`;
+  const file=new File([blob], fname, {type:blob.type});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:fname}); return; }
+  }catch(e){ if(e.name==='AbortError') return; }
+  try{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+  catch(e){ toast('Kunde inte spara filen – använd Kopiera istället'); }
+};
+$('btnCopy').onclick=async()=>{
+  const n=Math.max(D.lock.length,D.dosor.length); const lines=[];
+  for(let i=0;i<n;i++) lines.push(fmt(D.lock[i])+'\t'+fmt(D.dosor[i]));
+  try{ await navigator.clipboard.writeText(lines.join('\n')); toast(`Kopierade ${n} rader`); }catch(e){ toast('Kunde inte kopiera'); }
+};
+
+bindSet(); render();
+</script>
+</body>
+</html>
