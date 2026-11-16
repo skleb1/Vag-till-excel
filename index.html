@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vågläsare">
+<meta name="theme-color" content="#111418">
+<title>Vågläsare – Lock & dosor</title>
+<style>
+:root{--bg:#111418;--card:#1b2027;--line:#2c333d;--txt:#e9edf2;--mut:#8b96a5;--acc:#3ba776;--warn:#e0a63a;--bad:#d9534f;--blue:#4a8fe7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.35 -apple-system,system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{max-width:720px;margin:0 auto;padding:10px}
+h1{font-size:18px;margin:4px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+#camWrap{position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;touch-action:none}
+#video{display:block;width:100%;height:auto}
+#overlay{position:absolute;inset:0;width:100%;height:100%}
+#camHint{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:13px;color:#fff;text-shadow:0 1px 3px #000;pointer-events:none}
+button,select,input{font:inherit;color:var(--txt)}
+button{background:#2a313b;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.big{font-size:18px;padding:14px}
+button:active{transform:scale(.98)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 auto}
+.reading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#value{font:700 52px/1 ui-monospace,Menlo,monospace;letter-spacing:1px}
+#status{font-size:14px;padding:4px 10px;border-radius:999px;background:#2a313b;white-space:nowrap}
+#status.stable{background:var(--acc)}#status.wait{background:var(--warn);color:#000}#status.bad{background:var(--bad)}
+.tabs{display:flex;gap:8px}
+.tabs button{flex:1;font-size:17px}
+.tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.cnt{display:block;font-size:13px;font-weight:400;opacity:.9}
+label{font-size:14px;color:var(--mut)}
+.set{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.set div{display:flex;flex-direction:column;gap:4px}
+.set input,.set select{background:#0e1115;border:1px solid var(--line);border-radius:8px;padding:8px}
+input[type=range]{padding:0}
+.switch{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--txt)}
+.switch input{width:22px;height:22px}
+#dbg{width:100%;image-rendering:pixelated;border-radius:6px;background:#000;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:right}
+th:first-child,td:first-child{text-align:left;color:var(--mut);width:48px}
+td input{width:100%;background:transparent;border:0;text-align:right;padding:6px 2px;color:var(--txt)}
+td input:focus{background:#0e1115;outline:1px solid var(--blue)}
+td.cur{outline:2px solid var(--blue);outline-offset:-2px}
+#tbl{max-height:50vh;overflow:auto}
+.mut{color:var(--mut);font-size:13px}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+#toast.show{opacity:1}
+#flash{position:fixed;inset:0;background:var(--acc);opacity:0;pointer-events:none;transition:opacity .35s}
+details summary{cursor:pointer;font-weight:600;padding:4px 0}
+.dlg{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
+.dlg.show{display:flex}
+.dlg .card{max-width:420px;width:100%}
+</style>
+</head>
+<body>
+<main>
+<h1>⚖️ Vågläsare – lock & dosor</h1>
+
+<div class="card">
+  <div id="camWrap">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div id="camHint">Tryck "Starta kamera"</div>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnCam" class="pri">Starta kamera</button>
+    <button id="btnRoi">Markera själv</button>
+  </div>
+  <label class="switch" style="margin-top:8px"><input type="checkbox" id="autoFind"> Hitta den gröna displayen automatiskt</label>
+</div>
+
+<div class="card">
+  <div class="reading">
+    <div id="value">–</div>
+    <div id="status">Ingen kamera</div>
+  </div>
+  <div class="tabs" style="margin-top:10px">
+    <button id="tabLock" class="on">Lock<span class="cnt" id="cLock">0/170</span></button>
+    <button id="tabDosor">Dosor<span class="cnt" id="cDosor">0/170</span></button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnSave" class="pri big">Spara vikten</button>
+    <button id="btnUndo" class="big" style="flex:0 0 auto">↶ Ångra</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label class="switch"><input type="checkbox" id="auto" checked> Spara automatiskt när vikten är stabil</label>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <input id="manual" inputmode="decimal" placeholder="Skriv vikt för hand…" style="background:#0e1115;border:1px solid var(--line);border-radius:10px;padding:10px">
+    <button id="btnManual" style="flex:0 0 auto">Lägg till</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <button id="btnXlsx" class="pri">Exportera Excel</button>
+    <button id="btnCopy">Kopiera till urklipp</button>
+  </div>
+  <div class="mut" style="margin-top:6px">Kopiera ger två kolumner (lock, dosor) med decimalkomma – klistra in direkt i din befintliga Excel-fil.</div>
+  <div id="tbl" style="margin-top:8px"><table><thead><tr><th>Nr</th><th>Lock (g)</th><th>Dosor (g)</th></tr></thead><tbody id="tbody"></tbody></table></div>
+  <div class="row" style="margin-top:8px"><button id="btnClear" style="color:#f08a87">Ny vecka (rensa allt)</button></div>
+</div>
+
+<div class="card">
+<details id="setDet">
+  <summary>Inställningar & kalibrering</summary>
+  <div class="set" style="margin-top:8px">
+    <div><label>Antal decimaler på vågen</label><input id="sDec" type="number" min="0" max="4"></div>
+    <div><label>Lutning på siffrorna (°)</label><input id="sSlant" type="range" min="-5" max="20" step="1"><span class="mut" id="vSlant"></span></div>
+    <div><label>Kontrastgräns (högre = bara mörka segment)</label><input id="sK" type="range" min="0.04" max="0.3" step="0.01"><span class="mut" id="vK"></span></div>
+    <div><label>Stabil i (sekunder)</label><input id="sStable" type="number" min="0.3" max="5" step="0.1"></div>
+    <div><label>Minsta vikt som räknas (g)</label><input id="sMin" type="number" min="0" step="0.1"></div>
+    <div><label>Antal per sort</label><input id="sTarget" type="number" min="1" max="2000"></div>
+    <div><label>Max skillnad för "stabil" (g)</label><input id="sTol" type="number" min="0" step="0.1"></div>
+    <div style="justify-content:flex-end"><label class="switch"><input type="checkbox" id="sInv"> Ljusa siffror på mörk bakgrund</label></div>
+  </div>
+  <div class="mut" style="margin-top:8px">Förhandsvisning: så här ser appen siffrorna. Grön ruta = segment tänt, röd = släckt.</div>
+  <canvas id="dbg"></canvas>
+  <div class="mut" id="rawRead"></div>
+</details>
+</div>
+</main>
+
+<div id="toast"></div>
+<div id="flash"></div>
+<div class="dlg" id="dlg"><div class="card"><div id="dlgText" style="margin-bottom:12px"></div><div class="row"><button id="dlgNo">Avbryt</button><button id="dlgYes" class="pri">OK</button></div></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+// ---------- Inställningar & data ----------
+const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true}, store.get('vag_settings2', {}));
+let D = store.get('vag_data', {lock:[], dosor:[], mode:'lock'});
+const saveS = () => store.set('vag_settings2', S);
+const saveD = () => store.set('vag_data', D);
+
+// ---------- UI-hjälp ----------
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),1800); }
+function flash(){ const f=$('flash'); f.style.opacity=.35; setTimeout(()=>f.style.opacity=0,120); }
+let actx=null;
+function beep(freq=1200, ms=90){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain(); o.frequency.value=freq; o.connect(g); g.connect(actx.destination);
+    g.gain.value=.15; o.start(); o.stop(actx.currentTime+ms/1000); }catch(e){}
+  try{ navigator.vibrate && navigator.vibrate(60); }catch(e){}
+}
+function ask(text){ return new Promise(res=>{ $('dlgText').textContent=text; $('dlg').classList.add('show');
+  const done=v=>{ $('dlg').classList.remove('show'); $('dlgYes').onclick=$('dlgNo').onclick=null; res(v); };
+  $('dlgYes').onclick=()=>done(true); $('dlgNo').onclick=()=>done(false); }); }
+const fmt = v => (v==null || isNaN(v)) ? '' : v.toFixed(S.decimals).replace('.', ',');
+const parseNum = s => { const v = parseFloat(String(s).replace(',', '.').replace(/[^0-9.\-]/g,'')); return isNaN(v) ? null : v; };
+
+// ---------- Tabell ----------
+function render(){
+  $('cLock').textContent = `${D.lock.length}/${S.target}`;
+  $('cDosor').textContent = `${D.dosor.length}/${S.target}`;
+  $('tabLock').classList.toggle('on', D.mode==='lock');
+  $('tabDosor').classList.toggle('on', D.mode==='dosor');
+  const n = Math.max(S.target, D.lock.length, D.dosor.length);
+  let h = '';
+  for(let i=0;i<n;i++){
+    const cl = (D.mode==='lock' && i===D.lock.length) ? ' class="cur"' : '';
+    const cd = (D.mode==='dosor' && i===D.dosor.length) ? ' class="cur"' : '';
+    h += `<tr><td>${i+1}</td><td${cl}><input data-k="lock" data-i="${i}" inputmode="decimal" value="${fmt(D.lock[i])}"></td><td${cd}><input data-k="dosor" data-i="${i}" inputmode="decimal" value="${fmt(D.dosor[i])}"></td></tr>`;
+  }
+  $('tbody').innerHTML = h;
+  const cur = $('tbody').querySelector('td.cur');
+  if(cur){ const box=$('tbl'); const r=cur.parentElement; if(r.offsetTop < box.scrollTop || r.offsetTop > box.scrollTop+box.clientHeight-40) box.scrollTop = r.offsetTop - box.clientHeight/2; }
+}
+$('tbody').addEventListener('change', e=>{
+  const el=e.target; if(!el.dataset.k) return;
+  const arr=D[el.dataset.k], i=+el.dataset.i, v=parseNum(el.value);
+  if(v==null){ if(i===arr.length-1) arr.pop(); else if(i<arr.length) arr[i]=null; }
+  else { while(arr.length<i) arr.push(null); arr[i]=v; }
+  saveD(); render();
+});
+
+function record(v){
+  if(v==null) return;
+  D[D.mode].push(v);
+  beep(); flash(); toast(`${D.mode==='lock'?'Lock':'Dosa'} ${D[D.mode].length}: ${fmt(v)} g`);
+  if(D.mode==='lock' && D.lock.length>=S.target && D.dosor.length<S.target){
+    D.mode='dosor'; setTimeout(()=>{ beep(800,250); toast('Alla lock klara – nu dosor!'); },400);
+  } else if(D.lock.length>=S.target && D.dosor.length>=S.target){
+    setTimeout(()=>{ beep(800,400); toast('Klart! Exportera till Excel.'); },400);
+  }
+  saveD(); render();
+}
+$('tabLock').onclick=()=>{ D.mode='lock'; saveD(); render(); };
+$('tabDosor').onclick=()=>{ D.mode='dosor'; saveD(); render(); };
+$('btnUndo').onclick=()=>{ const a=D[D.mode]; if(a.length){ const v=a.pop(); saveD(); render(); toast(`Tog bort ${fmt(v)} g`); armed=false; } };
+$('btnSave').onclick=()=>{ if(cur.val!=null) { record(cur.val); armed=false; smallCnt=0; } else toast('Ingen giltig avläsning just nu'); };
+const addManual=()=>{ const v=parseNum($('manual').value); if(v!=null){ record(v); $('manual').value=''; } };
+$('btnManual').onclick=addManual;
+$('manual').addEventListener('keydown',e=>{ if(e.key==='Enter') addManual(); });
+$('btnClear').onclick=async()=>{ if(await ask('Rensa alla vikter och börja en ny vecka? Exportera först om du inte redan gjort det.')){ D={lock:[],dosor:[],mode:'lock'}; saveD(); render(); } };
+
+// ---------- Inställningsfält ----------
+function bindSet(){
+  const map=[['sDec','decimals',parseInt],['sSlant','slant',parseFloat],['sK','k',parseFloat],['sStable','stableSec',parseFloat],['sMin','minW',parseFloat],['sTarget','target',parseInt],['sTol','tol',parseFloat]];
+  for(const [id,k,p] of map){ const el=$(id); el.value=S[k]; el.addEventListener('input',()=>{ const v=p(el.value); if(!isNaN(v)){ S[k]=v; saveS(); showVals(); if(k==='target'||k==='decimals') render(); } }); }
+  $('sInv').checked=S.invert; $('sInv').onchange=()=>{ S.invert=$('sInv').checked; saveS(); };
+  $('autoFind').checked=S.autoFind; $('autoFind').onchange=()=>{ S.autoFind=$('autoFind').checked; saveS(); };
+  $('auto').checked=S.auto; $('auto').onchange=()=>{ S.auto=$('auto').checked; saveS(); };
+  showVals();
+}
+function showVals(){ $('vSlant').textContent=S.slant+'°'; $('vK').textContent=S.k.toFixed(2); }
+
+// ---------- Kamera ----------
+const video=$('video'), ov=$('overlay'), octx=ov.getContext('2d');
+let stream=null, wakeLock=null;
+async function startCam(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('Kameran kräver https – öppna sidan via din https-adress'); $('camHint').textContent='Kameran kräver att sidan öppnas via https'; return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}});
+    video.srcObject=stream; await video.play();
+    $('btnCam').textContent='Stoppa kamera'; $('btnCam').classList.remove('pri');
+    $('camHint').textContent = (S.roi||S.autoFind) ? '' : 'Tryck "Markera själv" och dra en ruta runt hela displayen';
+    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    requestAnimationFrame(loop);
+  }catch(e){ toast('Kunde inte starta kameran: '+e.message); }
+}
+function stopCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; $('btnCam').textContent='Starta kamera'; $('btnCam').classList.add('pri'); setStatus('Ingen kamera',''); try{ wakeLock&&wakeLock.release(); }catch(e){} }
+$('btnCam').onclick=()=> stream ? stopCam() : startCam();
+document.addEventListener('visibilitychange', async()=>{ if(document.visibilityState==='visible' && stream && 'wakeLock' in navigator){ try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
+
+// ---------- Markera område ----------
+let roiMode=false, drag=null;
+$('btnRoi').onclick=()=>{ if(!stream){ toast('Starta kameran först'); return; } roiMode=true; $('camHint').textContent='Dra en ruta runt hela den gröna displayen – ta med lite marginal'; $('btnRoi').classList.add('pri'); };
+// var på skärmen själva videobilden hamnar (video skalas med "contain")
+function vrect(){ const cw=ov.clientWidth, ch=ov.clientHeight, vw=video.videoWidth||cw, vh=video.videoHeight||ch, sc=Math.min(cw/vw, ch/vh);
+  return {ox:(cw-vw*sc)/2, oy:(ch-vh*sc)/2, w:vw*sc, h:vh*sc}; }
+function pt(e){ const r=ov.getBoundingClientRect(), v=vrect(); return {x:Math.min(1,Math.max(0,(e.clientX-r.left-v.ox)/v.w)), y:Math.min(1,Math.max(0,(e.clientY-r.top-v.oy)/v.h))}; }
+ov.addEventListener('pointerdown',e=>{ if(!roiMode) return; e.preventDefault(); ov.setPointerCapture(e.pointerId); drag={a:pt(e),b:pt(e)}; });
+ov.addEventListener('pointermove',e=>{ if(drag){ e.preventDefault(); drag.b=pt(e); } });
+ov.addEventListener('pointerup',e=>{ if(!drag) return; const {a,b}=drag; drag=null;
+  const r={x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), w:Math.abs(a.x-b.x), h:Math.abs(a.y-b.y)};
+  if(r.w>0.03 && r.h>0.02){ S.roi=r; S.autoFind=false; $('autoFind').checked=false; saveS(); roiMode=false; $('btnRoi').classList.remove('pri'); $('camHint').textContent=''; toast('Område sparat!'); }
+});
+
+// ---------- Sjusegmentsavläsning ----------
+// Hittar varje siffra själv (kolumnprofil), jämför varje pixel mot sin omgivning
+// (tål ojämn belysning och "skuggsiffror"), och letar segment längs linjer.
+const CODES={ '1111110':'0','0110000':'1','1101101':'2','1111001':'3','0110011':'4','1011011':'5','1011111':'6','0011111':'6','1110000':'7','1110010':'7','1111111':'8','1111011':'9','1110011':'9','0000001':'-' };
+const work=document.createElement('canvas'), wctx=work.getContext('2d',{willReadFrequently:true});
+const dbg=$('dbg'), dctx=dbg.getContext('2d');
+let lastDigits=[];
+
+// Letar upp den upplysta gröna LCD-displayen i bilden (följer med om telefonen rör sig)
+const loc=document.createElement('canvas'), lctx=loc.getContext('2d',{willReadFrequently:true});
+let autoRoi=null;
+function locateLCD(){
+  const vw=video.videoWidth, vh=video.videoHeight; if(!vw) return null;
+  const LW=240, LH=Math.round(LW*vh/vw); loc.width=LW; loc.height=LH;
+  lctx.drawImage(video,0,0,vw,vh,0,0,LW,LH);
+  const d=lctx.getImageData(0,0,LW,LH).data, N=LW*LH, m=new Uint8Array(N);
+  for(let i=0,j=0;j<N;i+=4,j++){ const r=d[i],g=d[i+1],b=d[i+2]; m[j]=(g>90 && g-r>60 && g>b+15)?1:0; }
+  const lab=new Int32Array(N), stack=new Int32Array(N); let best=null, id=0;
+  for(let j=0;j<N;j++){ if(!m[j]||lab[j]) continue; id++; let sp=0, area=0, x0=1e9,y0=1e9,x1=-1,y1=-1; stack[sp++]=j; lab[j]=id;
+    while(sp){ const k=stack[--sp], x=k%LW, y=(k/LW)|0; area++; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+      if(x>0&&m[k-1]&&!lab[k-1]){lab[k-1]=id;stack[sp++]=k-1;} if(x<LW-1&&m[k+1]&&!lab[k+1]){lab[k+1]=id;stack[sp++]=k+1;}
+      if(y>0&&m[k-LW]&&!lab[k-LW]){lab[k-LW]=id;stack[sp++]=k-LW;} if(y<LH-1&&m[k+LW]&&!lab[k+LW]){lab[k+LW]=id;stack[sp++]=k+LW;} }
+    const bw=x1-x0+1, bh=y1-y0+1, asp=bw/bh;
+    if(area>N*0.002 && asp>1.6 && asp<7 && area>0.4*bw*bh && (!best||area>best.area)) best={area,x0,y0,bw,bh}; }
+  if(!best) return null;
+  const px=1.5/LW, py=best.bh*0.12/LH;   // lite marginal runt displayen
+  const nr={x:Math.max(0,best.x0/LW-px), y:Math.max(0,best.y0/LH-py), w:Math.min(1,best.bw/LW+2*px), h:Math.min(1,best.bh/LH+2*py)};
+  if(autoRoi && Math.abs(nr.x-autoRoi.x)<0.05 && Math.abs(nr.y-autoRoi.y)<0.05){ for(const k of ['x','y','w','h']) autoRoi[k]=autoRoi[k]*0.3+nr[k]*0.7; }
+  else autoRoi=nr;
+  return autoRoi;
+}
+
+function readDisplay(){
+  if(S.autoFind){ const a=locateLCD(); if(!a) return null; S.roi=a; }
+  const vw=video.videoWidth, vh=video.videoHeight, r=S.roi;
+  if(!vw || !r) return null;
+  const sx=r.x*vw, sy=r.y*vh, sw=r.w*vw, sh=r.h*vh;
+  const W=360, H=Math.max(30, Math.round(W*sh/sw));
+  work.width=W; work.height=H;
+  wctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+  const px=wctx.getImageData(0,0,W,H).data, N=W*H;
+  const g0=new Float32Array(N);
+  for(let i=0,j=0;j<N;i+=4,j++){ const v=px[i]*.299+px[i+1]*.587+px[i+2]*.114; g0[j]=S.invert?255-v:v; }
+  // räta upp lutande siffror
+  const sp=Math.tan(S.slant*Math.PI/180)*H, g1=new Float32Array(N);
+  for(let y=0;y<H;y++){ const shf=(0.5-y/H)*sp; for(let x=0;x<W;x++){ let xs=Math.round(x+shf); xs=xs<0?0:xs>=W?W-1:xs; g1[y*W+x]=g0[y*W+xs]; } }
+  // lätt utjämning 3x3
+  const g=new Float32Array(g1);
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){ let s=0; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) s+=g1[(y+dy)*W+x+dx]; g[y*W+x]=s/9; }
+  // lokal tröskel via integralbild
+  const IW=W+1, I=new Float64Array(IW*(H+1));
+  for(let y=0;y<H;y++){ let s=0; for(let x=0;x<W;x++){ s+=g[y*W+x]; I[(y+1)*IW+x+1]=I[y*IW+x+1]+s; } }
+  const rad=Math.max(3,Math.floor(H*0.45)), bin=new Uint8Array(N);
+  for(let y=1;y<H-1;y++){ const y0=Math.max(0,y-rad), y1=Math.min(H,y+rad+1);
+    for(let x=1;x<W-1;x++){ const x0=Math.max(0,x-rad), x1=Math.min(W,x+rad+1);
+      const m=(I[y1*IW+x1]-I[y0*IW+x1]-I[y1*IW+x0]+I[y0*IW+x0])/((y1-y0)*(x1-x0));
+      bin[y*W+x]= g[y*W+x] < m*(1-S.k) ? 1 : 0; } }
+  // sammanhängande delar (segment) i bilden
+  const lab=new Int32Array(N), stk=new Int32Array(N), comps=[];
+  for(let j=0;j<N;j++){ if(!bin[j]||lab[j]) continue; const id=comps.length+1; let sp=0,area=0,x0=1e9,y0=1e9,x1=-1,y1=-1; stk[sp++]=j; lab[j]=id;
+    while(sp){ const k=stk[--sp], x=k%W, y=(k/W)|0; area++; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+      if(x>0&&bin[k-1]&&!lab[k-1]){lab[k-1]=id;stk[sp++]=k-1;} if(x<W-1&&bin[k+1]&&!lab[k+1]){lab[k+1]=id;stk[sp++]=k+1;}
+      if(y>0&&bin[k-W]&&!lab[k-W]){lab[k-W]=id;stk[sp++]=k-W;} if(y<H-1&&bin[k+W]&&!lab[k+W]){lab[k+W]=id;stk[sp++]=k+W;} }
+    comps.push({id,area,x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}); }
+  // släng ramkanter, brus, decimalpunkt, "g", "o"
+  // släng ramkanter (rör vänster/höger kant), stora ramdelar och brus
+  let cand=comps.filter(c=>c.area>=6 && c.x0>2 && c.x1<W-3 && c.w<0.6*W && c.h<0.95*H);
+  // typisk segmentlängd L = median av avlånga, tjocka delar
+  const mx=c=>Math.max(c.w,c.h), mn=c=>Math.min(c.w,c.h), isLong=c=>mx(c)>=2*mn(c);
+  let lens=cand.filter(c=>isLong(c) && mn(c)>=3).map(mx).sort((a,b)=>a-b);
+  let L=lens.length ? lens[lens.length>>1] : 0;
+  lens=lens.filter(v=>v>=0.6*L && v<=1.5*L); if(lens.length) L=lens[lens.length>>1];
+  // behåll segment och hopväxta siffror; släng punkt, "o", "g", tunna ramlinjer och brus
+  cand=cand.filter(c=>mx(c)>=0.6*L && (isLong(c) || mx(c)>=0.9*L) && mn(c)>=0.15*L && c.h<=2.4*L && c.w<=2*L);
+  const keep=new Uint8Array(comps.length+1); for(const c of cand) keep[c.id]=1;
+  const clean=new Uint8Array(N); for(let j=0;j<N;j++) if(lab[j]&&keep[lab[j]]) clean[j]=1;
+  bin.set(clean);
+  const boxes=[], digits=[]; let chars='';
+  if(cand.length){
+    // siffrornas höjdband bestäms av lodräta delar; släng sådant som ligger utanför bandet
+    const vert=cand.filter(c=>c.h>=c.w); const bandSrc=vert.length?vert:cand;
+    const T=Math.min(...bandSrc.map(c=>c.y0)), B=Math.max(...bandSrc.map(c=>c.y1)), h=B-T+1;
+    cand=cand.filter(c=>{ const cy=(c.y0+c.y1)/2; return cy>=T-0.05*h && cy<=B+0.05*h; });
+    cand.sort((a,b)=>a.x0-b.x0);
+    let groups=[]; for(const c of cand){ const g=groups[groups.length-1]; if(g && c.x0<=g.x1+0.12*h){ g.x1=Math.max(g.x1,c.x1); } else groups.push({x0:c.x0,x1:c.x1}); }
+    // vågen visar siffrorna högerställda: behåll bara gruppen längst till höger + grannar på normalt avstånd
+    for(let i=groups.length-1;i>0;i--){ if(groups[i].x0-groups[i-1].x1>0.8*h){ groups=groups.slice(i); break; } }
+    const at=(x,y)=> (x>=0&&x<W&&y>=0&&y<H) ? bin[y*W+x] : 0;
+    for(const gr of groups){
+      const s0=gr.x0, e=gr.x1, w=e-s0+1;
+      digits.push([s0/W, T/H, (e+1)/W, (B+1)/H]);
+      if(w<0.3*h){ chars+='1'; boxes.push([s0,T,w,h,true]); continue; }
+      const vseg=(y0f,y1f,x0f,x1f)=>{ const ya=Math.floor(T+y0f*h), yb=Math.floor(T+y1f*h), xa=Math.floor(s0+x0f*w), xb=Math.floor(s0+x1f*w); let hit=0;
+        for(let y=ya;y<=yb;y++){ for(let x=xa;x<=xb;x++) if(at(x,y)){ hit++; break; } }
+        const f=hit/(yb-ya+1); boxes.push([xa,ya,xb-xa+1,yb-ya+1,f>0.5]); return f>0.5; };
+      const hseg=(y0f,y1f)=>{ const xa=Math.floor(s0+.35*w), xb=Math.floor(s0+.65*w), ya=Math.floor(T+y0f*h), yb=Math.floor(T+y1f*h); let hit=0;
+        for(let x=xa;x<=xb;x++){ for(let y=ya;y<=yb;y++) if(at(x,y)){ hit++; break; } }
+        const f=hit/(xb-xa+1); boxes.push([xa,ya,xb-xa+1,yb-ya+1,f>0.5]); return f>0.5; };
+      const code=[hseg(0,.18),vseg(.2,.38,.55,1),vseg(.62,.8,.5,.95),hseg(.82,1),vseg(.62,.8,0,.45),vseg(.2,.38,.05,.5),hseg(.4,.6)].map(v=>v?'1':'0').join('');
+      chars += CODES[code] || '?';
+    }
+  }
+  lastDigits=digits;
+  if($('setDet').open){
+    dbg.width=W; dbg.height=H;
+    const im=dctx.createImageData(W,H);
+    for(let j=0;j<N;j++){ const c=bin[j]?20:235; im.data[j*4]=im.data[j*4+1]=im.data[j*4+2]=c; im.data[j*4+3]=255; }
+    dctx.putImageData(im,0,0);
+    for(const [x,y,w,h,on] of boxes){ dctx.strokeStyle=on?'#2ecc71':'#e74c3c'; dctx.lineWidth=1; dctx.strokeRect(x+.5,y+.5,w,h); }
+    $('rawRead').textContent='Rå avläsning: "'+chars+'"';
+  }
+  return decode(chars);
+}
+
+function decode(chars){
+  if(chars.includes('?')) return {ok:false, raw:chars};
+  const t=chars.replace(/ /g,'');
+  if(t==='') return {ok:true, val:0, blank:true, raw:chars};
+  let neg=false, s=t;
+  if(s[0]==='-'){ neg=true; s=s.slice(1); }
+  if(!/^\d+$/.test(s)) return {ok:false, raw:chars};
+  let v=parseInt(s,10)/Math.pow(10,S.decimals); if(neg) v=-v;
+  return {ok:true, val:+v.toFixed(S.decimals), raw:chars};
+}
+
+// ---------- Stabilitet & autosparning ----------
+// Oläsbara bilder hoppas över (nollställer inget). Vikten räknas som stabil när alla
+// avläsningar senaste sekunden ligger inom ±tolerans. Under minsta vikt => redo för nästa.
+let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0;
+function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
+function step(r, now){
+  if(!r || !r.ok){
+    if(now-lastOk>1500){ hist=[]; cur.val=null; return {disp:r?'?':'–', status: r ? ['Kan inte läsa','bad'] : [S.autoFind?'Hittar inte displayen':'Markera displayen','wait']}; }
+    return null; // tillfälligt oläsbar – behåll senaste läge
+  }
+  lastOk=now;
+  hist.push({t:now,v:r.val}); hist=hist.filter(h=>now-h.t<=S.stableSec*1000+150);
+  const span=now-hist[0].t, vals=hist.map(h=>h.v), lo=Math.min(...vals), hi=Math.max(...vals);
+  const stable = span>=S.stableSec*900 && hist.length>=3 && hi-lo<=S.tol+1e-9;
+  const small = Math.abs(r.val) < S.minW;
+  cur.val = r.blank ? null : r.val;
+  smallCnt = small ? smallCnt+1 : 0;
+  if(smallCnt>=2) armed=true;
+  let saved=null;
+  if(stable && !small && armed && S.auto){ saved=r.val; armed=false; }
+  const status = small ? ['Lägg på nästa',''] : stable ? [armed?'Stabil':'Sparad – lyft av','stable'] : ['Väntar…','wait'];
+  return {disp: r.blank ? '–' : fmt(r.val), status, saved};
+}
+function loop(ts){
+  if(!stream) return;
+  drawOverlay();
+  if(ts-lastT>110){ lastT=ts;
+    const res=step(readDisplay(), performance.now());
+    if(res){ $('value').textContent=res.disp; setStatus(...res.status); if(res.saved!=null) record(res.saved); }
+  }
+  requestAnimationFrame(loop);
+}
+function drawOverlay(){
+  const w=ov.clientWidth, h=ov.clientHeight, dpr=window.devicePixelRatio||1;
+  if(ov.width!==Math.round(w*dpr)){ ov.width=Math.round(w*dpr); ov.height=Math.round(h*dpr); }
+  octx.setTransform(dpr,0,0,dpr,0,0); octx.clearRect(0,0,w,h);
+  const r = drag ? {x:Math.min(drag.a.x,drag.b.x), y:Math.min(drag.a.y,drag.b.y), w:Math.abs(drag.a.x-drag.b.x), h:Math.abs(drag.a.y-drag.b.y)} : S.roi;
+  if(!r) return;
+  const v=vrect(), X=x=>v.ox+x*v.w, Y=y=>v.oy+y*v.h;
+  octx.strokeStyle='#3ba776'; octx.lineWidth=2; octx.strokeRect(X(r.x), Y(r.y), r.w*v.w, r.h*v.h);
+  if(!drag && lastDigits.length){ octx.strokeStyle='rgba(74,143,231,.9)'; octx.lineWidth=1.5;
+    for(const [x0,y0,x1,y1] of lastDigits) octx.strokeRect(X(r.x+r.w*x0), Y(r.y+r.h*y0), r.w*(x1-x0)*v.w, r.h*(y1-y0)*v.h); }
+}
+
+/*XLSX-START*/
+const CRC=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0; } return t; })();
+function crc32(b){ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=CRC[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zip(files){
+  const enc=new TextEncoder(), parts=[], cd=[]; let off=0;
+  for(const f of files){
+    const name=enc.encode(f.name), data=typeof f.data==='string'?enc.encode(f.data):f.data, crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true); lh.setUint16(8,0,true);
+    lh.setUint16(10,0,true); lh.setUint16(12,0x21,true); lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true);
+    lh.setUint32(22,data.length,true); lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true); ch.setUint16(10,0,true);
+    ch.setUint16(12,0,true); ch.setUint16(14,0x21,true); ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true); ch.setUint16(30,0,true); ch.setUint16(32,0,true); ch.setUint16(34,0,true); ch.setUint16(36,0,true);
+    ch.setUint32(38,0,true); ch.setUint32(42,off,true);
+    cd.push(new Uint8Array(ch.buffer), name);
+    off += 30+name.length+data.length;
+  }
+  let cdSize=0; for(const c of cd) cdSize+=c.length;
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,files.length,true); end.setUint16(10,files.length,true);
+  end.setUint32(12,cdSize,true); end.setUint32(16,off,true);
+  return new Blob([...parts, ...cd, new Uint8Array(end.buffer)], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function colL(i){ return String.fromCharCode(65+i); }
+function buildXlsx(lock, dosor, sheetName, dateStr){
+  const rows=[]; const cell=(r,c,v)=>{
+    const ref=colL(c)+r;
+    if(v==null || v==='') return '';
+    if(typeof v==='number') return `<c r="${ref}"><v>${v}</v></c>`;
+    if(typeof v==='object' && v.f) return `<c r="${ref}"><f>${esc(v.f)}</f></c>`;
+    return `<c r="${ref}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+  };
+  const addRow=(r,vals)=>rows.push(`<row r="${r}">${vals.map((v,c)=>cell(r,c,v)).join('')}</row>`);
+  addRow(1,['Datum', dateStr]);
+  addRow(3,['Nr','Lock (g)','Dosor (g)']);
+  const n=Math.max(lock.length,dosor.length);
+  for(let i=0;i<n;i++) addRow(4+i,[i+1, lock[i]??null, dosor[i]??null]);
+  const last=3+Math.max(n,1), s=last+2;
+  addRow(s,  ['Antal', {f:`COUNT(B4:B${last})`}, {f:`COUNT(C4:C${last})`}]);
+  addRow(s+1,['Medel', {f:`AVERAGE(B4:B${last})`}, {f:`AVERAGE(C4:C${last})`}]);
+  addRow(s+2,['Min',   {f:`MIN(B4:B${last})`}, {f:`MIN(C4:C${last})`}]);
+  addRow(s+3,['Max',   {f:`MAX(B4:B${last})`}, {f:`MAX(C4:C${last})`}]);
+  addRow(s+4,['Std.avv.', {f:`STDEV(B4:B${last})`}, {f:`STDEV(C4:C${last})`}]);
+  const NS='http://schemas.openxmlformats.org';
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS}/spreadsheetml/2006/main"><cols><col min="1" max="1" width="10" customWidth="1"/><col min="2" max="3" width="14" customWidth="1"/></cols><sheetData>${rows.join('')}</sheetData></worksheet>`;
+  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${NS}/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`;
+  return zip([
+    {name:'[Content_Types].xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="${NS}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
+    {name:'_rels/.rels', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${NS}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {name:'xl/workbook.xml', data:wb},
+    {name:'xl/_rels/workbook.xml.rels', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${NS}/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`},
+    {name:'xl/worksheets/sheet1.xml', data:sheet}
+  ]);
+}
+function isoWeek(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day); const y=new Date(Date.UTC(t.getUTCFullYear(),0,1)); return Math.ceil(((t-y)/864e5+1)/7); }
+/*XLSX-END*/
+
+$('btnXlsx').onclick=async()=>{
+  const d=new Date(), ds=d.toISOString().slice(0,10), wk=isoWeek(d);
+  const blob=buildXlsx(D.lock, D.dosor, 'Vecka '+wk, ds);
+  const fname=`Lock och dosor v${wk} ${ds}.xlsx`;
+  const file=new File([blob], fname, {type:blob.type});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:fname}); return; }
+  }catch(e){ if(e.name==='AbortError') return; }
+  try{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+  catch(e){ toast('Kunde inte spara filen – använd Kopiera istället'); }
+};
+$('btnCopy').onclick=async()=>{
+  const n=Math.max(D.lock.length,D.dosor.length); const lines=[];
+  for(let i=0;i<n;i++) lines.push(fmt(D.lock[i])+'\t'+fmt(D.dosor[i]));
+  try{ await navigator.clipboard.writeText(lines.join('\n')); toast(`Kopierade ${n} rader`); }catch(e){ toast('Kunde inte kopiera'); }
+};
+
+bindSet(); render();
+</script>
+</body>
+</html>
