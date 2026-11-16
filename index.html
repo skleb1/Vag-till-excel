@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 10</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 12</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -237,7 +237,7 @@ function record(v, force, src){
     logEvent('avvisad', kind, v, med); logSnap('fail',{raw:'avvisad', val:v});
     return false;
   }
-  D[kind].push(v); D.hist.push(kind);
+  D[kind].push(v); D.hist.push(kind); lastSaved=v;
   logEvent('sparad', kind, D[kind].length, v, src||'auto'); logSnap('save', {kind, nr:D[kind].length, val:v, src:src||'auto'});
   if(isDev(v, med)){ beep(500,180); setTimeout(()=>beep(500,180),260); flash();
     toast(`⚠️ ${name} ${D[kind].length}: ${fmt(v)} g – avviker (median ${fmt(med)} g). Sparad.`); }
@@ -397,7 +397,8 @@ function readDisplay(){
     comps.push({id,area,x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}); }
   // släng ramkanter, brus, decimalpunkt, "g", "o"
   // släng ramkanter (rör vänster/höger kant), stora ramdelar och brus
-  let cand=comps.filter(c=>c.area>=6 && c.x0>2 && c.x1<W-3 && c.w<0.6*W && c.h<0.95*H);
+  const edge=Math.max(3,Math.round(W*0.03));   // displayens ram ger mörka streck nära kanten – riktiga siffror sitter aldrig där
+  let cand=comps.filter(c=>c.area>=6 && c.x0>edge && c.x1<W-1-edge && c.w<0.6*W && c.h<0.95*H);
   // typisk segmentlängd L = median av avlånga, tjocka delar
   const mx=c=>Math.max(c.w,c.h), mn=c=>Math.min(c.w,c.h), isLong=c=>mx(c)>=2*mn(c);
   let lens=cand.filter(c=>isLong(c) && mn(c)>=3).map(mx).sort((a,b)=>a-b);
@@ -459,7 +460,7 @@ function decode(chars){
 // ---------- Stabilitet & autosparning ----------
 // Oläsbara bilder hoppas över (nollställer inget). Vikten räknas som stabil när alla
 // avläsningar senaste sekunden ligger inom ±tolerans. Under minsta vikt => redo för nästa.
-let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false;
+let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null;
 function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
 function step(r, now){
   if(!r || !r.ok){
@@ -472,11 +473,22 @@ function step(r, now){
   const stable = span>=S.stableSec*900 && hist.length>=3 && hi-lo<=S.tol+1e-9;
   const small = Math.abs(r.val) < S.minW;
   cur.val = r.blank ? null : r.val;
-  smallCnt = small ? smallCnt+1 : 0;
-  if(smallCnt>=2){ armed=true; redo=false; }
+  if(stable && !small) refStable=r.val;
+  // "Tom våg" räknas inte om den bara är decimalerna av vikten som ligger på (8,44 felläst som 0,44)
+  const fakeZero = small && r.val>=0.2 && refStable!=null && Math.abs(Math.round((refStable%1)*100)/100 - r.val) < 0.015;
+  smallCnt = (small && !fakeZero) ? smallCnt+1 : 0;
+  if(smallCnt>=2){ armed=true; redo=false; plat=null; }
+  // Snabbt byte utan att vågen hann visa 0: en ny stabil vikt som skiljer ≥0,05 g från den senast sparade
+  // och ligger kvar i 1 sekund räknas som en ny dosa/lock.
+  let newWeight=false;
+  if(!armed && !redo && stable && !small && lastSaved!=null && Math.abs(r.val-lastSaved) >= 0.05-1e-9){
+    if(!plat || Math.abs(plat.v-r.val) > S.tol+1e-9) plat={t:now, v:r.val};
+    newWeight=true;
+    if(now-plat.t >= 1000){ armed=true; plat=null; }
+  } else if(!stable) plat=null;
   let saved=null;
   if(stable && !small && armed && S.auto){ saved=r.val; armed=false; }
-  const status = small ? ['Lägg på nästa',''] : redo ? ['Gör om – lyft av och lägg på igen','bad'] : stable ? [armed?'Stabil':'Sparad – lyft av','stable'] : ['Väntar…','wait'];
+  const status = small ? ['Lägg på nästa',''] : redo ? ['Gör om – lyft av och lägg på igen','bad'] : newWeight ? ['Ny vikt – sparar strax…','wait'] : stable ? [armed?'Stabil':'Sparad – lyft av','stable'] : ['Väntar…','wait'];
   return {disp: r.blank ? '–' : fmt(r.val), status, saved};
 }
 function handleReading(r, now){
@@ -626,7 +638,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:8, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:12, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
