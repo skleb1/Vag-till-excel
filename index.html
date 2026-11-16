@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 16</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 18</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -76,6 +76,16 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
     <button id="btnRoi">Markera själv</button>
   </div>
   <div id="zoomRow" style="display:none;margin-top:8px"><label>Zoom <span id="vZoom"></span></label><input id="zoom" type="range" style="width:100%"></div>
+  <details id="camDet" style="margin-top:8px"><summary>Kamerainställningar</summary>
+    <div id="focusRow" style="display:none;margin-top:8px">
+      <label class="switch"><input type="checkbox" id="focusMan"> Fast fokus (stänger av autofokus)</label>
+      <label>Fokus: nära ↔ långt <span id="vFocus"></span></label><input id="focus" type="range" style="width:100%">
+      <div class="mut" id="focusInfo"></div>
+    </div>
+    <label class="switch" id="wbRow" style="display:none;margin-top:8px"><input type="checkbox" id="wbLock"> Lås färgbalansen (displayen byter inte färgton)</label>
+    <label class="switch" id="torchRow" style="display:none;margin-top:8px"><input type="checkbox" id="torch"> Ficklampa (kan ge blänk i displayen)</label>
+    <div class="mut" style="margin-top:8px" id="camInfo">Ljusstyrkan går inte att styra från Safari, men avläsningen jämför varje punkt med ljuset runt omkring och klarar både ljusa och mörka bilder.</div>
+  </details>
   <label class="switch" style="margin-top:8px"><input type="checkbox" id="autoFind"> Hitta den gröna displayen automatiskt</label>
 </div>
 
@@ -158,7 +168,7 @@ const store = {
 };
 
 // ---------- Inställningar & data ----------
-const S = Object.assign({autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null,copySep:'.'}, store.get('vag_settings7', {}));
+const S = Object.assign({chanMode:'luma',perDigit:false,kMode:'rel',edgeFrac:0.05,autoFind:true,roi:null,decimals:2,slant:4,k:0.12,stableSec:1.0,minW:1,target:170,tol:0.02,invert:false,auto:true,dev:0.25,zoom:null,focusMan:false,focusDist:null,wbLock:false,torch:false,copySep:'.'}, store.get('vag_settings7', {}));
 const newData = () => ({dosor:[], lock:[], mode:'dosor', hist:[]});
 let D = Object.assign(newData(), store.get('vag_data', {}));
 const saveS = () => store.set('vag_settings7', S);
@@ -298,7 +308,7 @@ async function startCam(){
     $('btnCam').textContent='Stoppa kamera'; $('btnCam').classList.remove('pri');
     $('camHint').textContent = (S.roi||S.autoFind) ? '' : 'Tryck "Markera själv" och dra en ruta runt hela displayen';
     try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
-    setupZoom();
+    setupZoom(); setupCamControls();
     requestAnimationFrame(loop);
   }catch(e){ toast('Kunde inte starta kameran: '+e.message); }
 }
@@ -315,6 +325,41 @@ function setupZoom(){
       tr.applyConstraints({advanced:[{zoom:z}]}).catch(()=>{}); S.zoom=z; saveS(); autoRoi=null; };
     sl.oninput=apply; apply(); row.style.display='';
   }catch(e){ row.style.display='none'; }
+}
+// Fokus, färgbalans och ficklampa – visas bara om telefonen stöder dem; kollar om inställningen faktiskt slog igenom
+function setupCamControls(){
+  let tr, caps={};
+  try{ tr=stream.getVideoTracks()[0]; caps=tr.getCapabilities ? tr.getCapabilities() : {}; }catch(e){ return; }
+  const settle=()=>new Promise(r=>setTimeout(r,300));
+  const tryApply=async c=>{ try{ await tr.applyConstraints({advanced:[c]}); return true; }catch(e){ return false; } };
+  // fokus
+  if(caps.focusDistance){
+    const row=$('focusRow'), sl=$('focus'), cb=$('focusMan'), fmin=caps.focusDistance.min||0.02, fmax=caps.focusDistance.max||1;
+    sl.min=fmin; sl.max=fmax; sl.step=caps.focusDistance.step||0.01;
+    sl.value=S.focusDist!=null ? Math.min(Math.max(S.focusDist,fmin),fmax) : Math.min(0.25,fmax);
+    cb.checked=S.focusMan; row.style.display='';
+    const apply=async()=>{
+      const v=parseFloat(sl.value); $('vFocus').textContent=v.toFixed(2)+' m'; S.focusDist=v; S.focusMan=cb.checked; saveS(); sl.disabled=!cb.checked;
+      if(cb.checked){ await tryApply({focusMode:'manual', focusDistance:v}); await settle();
+        const got=tr.getSettings().focusDistance;
+        $('focusInfo').textContent = (got!=null && Math.abs(got-v)<0.02) ? 'Fast fokus är på.' : 'Telefonen tog inte emot fokusinställningen – den kör autofokus.'; logEvent('fokus', v, got??null); }
+      else { await tryApply({focusMode:'continuous'}); $('focusInfo').textContent='Autofokus.'; }
+    };
+    sl.onchange=apply; sl.oninput=()=>{ $('vFocus').textContent=parseFloat(sl.value).toFixed(2)+' m'; }; cb.onchange=apply; apply();
+  }
+  // färgbalans
+  if(Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('manual')){
+    $('wbRow').style.display=''; const cb=$('wbLock'); cb.checked=S.wbLock;
+    const apply=async()=>{ S.wbLock=cb.checked; saveS(); await tryApply({whiteBalanceMode: cb.checked?'manual':'continuous'}); logEvent('färgbalans', cb.checked, tr.getSettings().whiteBalanceMode); };
+    cb.onchange=apply; if(S.wbLock) apply();
+  }
+  // ficklampa
+  if(caps.torch){
+    $('torchRow').style.display=''; const cb=$('torch'); cb.checked=S.torch;
+    const apply=async()=>{ S.torch=cb.checked; saveS(); await tryApply({torch:cb.checked}); };
+    cb.onchange=apply; if(S.torch) apply();
+  }
+  if(!caps.focusDistance && !caps.torch && !(caps.whiteBalanceMode||[]).includes('manual')) $('camInfo').textContent='Den här kameran låter inte webbsidor ändra fokus, färgbalans eller ficklampa. '+$('camInfo').textContent;
 }
 function stopCam(){ octx.clearRect(0,0,ov.width,ov.height); lastDigits=[]; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; $('btnCam').textContent='Starta kamera'; $('btnCam').classList.add('pri'); setStatus('Ingen kamera',''); try{ wakeLock&&wakeLock.release(); }catch(e){} }
 $('btnCam').onclick=()=> stream ? stopCam() : startCam();
@@ -340,7 +385,7 @@ ov.addEventListener('pointerup',e=>{ if(!drag) return; const {a,b}=drag; drag=nu
 const CODES={ '1111110':'0','0110000':'1','1101101':'2','1111001':'3','0110011':'4','1011011':'5','1011111':'6','0011111':'6','1110000':'7','1110010':'7','1111111':'8','1111011':'9','1110011':'9','0000001':'-' };
 const work=document.createElement('canvas'), wctx=work.getContext('2d',{willReadFrequently:true});
 const dbg=$('dbg'), dctx=dbg.getContext('2d');
-let lastDigits=[];
+let lastDigits=[], lastChan=0, lastClip=false;
 
 // Letar upp den upplysta gröna LCD-displayen i bilden (följer med om telefonen rör sig)
 const loc=document.createElement('canvas'), lctx=loc.getContext('2d',{willReadFrequently:true});
@@ -377,7 +422,7 @@ function locateLCD(){
 // Avläsningen körs med tre olika kontrastgränser och tre tolkningssätt (9 varianter).
 // Ett tal godkänns bara om minst 4 varianter läser exakt samma (och inget annat tal ligger nära), eller 3 om inget annat tal har mer än 1 röst.
 // Testat på 264 bilder från riktiga loggar: 243 rätt (förut 229), fel tal bara på en bild mitt i ett siffbyte (förut 5 fel).
-const KS=[0.25,0.18,0.12], VOTE_NEED=4, VOTE_MARGIN=2;   // 0,25 först: är dess tre tolkningar överens räcker det (snabbväg)
+const KS=[0.25,0.18,0.12], KS_REL=[0.55,0.42,0.30], KS_LOW=[0.08,0.06,0.045], VOTE_NEED=4, VOTE_MARGIN=2;   // 0,25 först: är dess tre tolkningar överens räcker det (snabbväg)
 const SEGR=[['h',0,.18],['v',.2,.38,.55,1],['v',.62,.8,.5,.95],['h',.82,1],['v',.62,.8,0,.45],['v',.2,.38,.05,.5],['h',.4,.6]];
 function readDisplay(){
   if(S.autoFind){ const a=locateLCD(); if(!a) return null; S.roi=a; }
@@ -388,8 +433,23 @@ function readDisplay(){
   work.width=W; work.height=H;
   wctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
   const px=wctx.getImageData(0,0,W,H).data, N=W*H;
+  // Välj den färgkanal där siffrorna syns bäst. Vid överexponering är grönt "fullt" (255) både på
+  // bakgrund och siffror – då syns siffrorna bara i blått. Jämför gråskala, grönt och blått.
+  const chans=[[.299,.587,.114,0],[0,1,0,0],[0,0,1,0],[0,-1,1,255]];   // gråskala, grönt, blått, blått−grönt (färgton)
+  let best=0, bestC=-1;
+  if(S.chanMode!=='luma'){
+    for(let c=0;c<chans.length;c++){ const [wr,wg,wb,off]=chans[c], hh=new Uint32Array(256); let n=0;
+      for(let y=Math.floor(H*.15);y<H*.85;y+=3) for(let x=Math.floor(W*.3);x<W*.97;x+=3){ const i=(y*W+x)*4; hh[Math.max(0,Math.min(255,(px[i]*wr+px[i+1]*wg+px[i+2]*wb+off)|0))]++; n++; }
+      const pct=q=>{ let a=0; for(let v=0;v<256;v++){ a+=hh[v]; if(a>=n*q) return v; } return 255; };
+      const bg=pct(0.75), dk=pct(0.02), con=(bg-dk)/(bg+8);
+      if(con>bestC){ bestC=con; best=c; } }
+  }
+  if(typeof S.chanMode==='number') best=S.chanMode;
+  { const hh=new Uint32Array(256); let n=0; for(let y=Math.floor(H*.15);y<H*.85;y+=3) for(let x=Math.floor(W*.3);x<W*.97;x+=3){ hh[px[(y*W+x)*4+1]]++; n++; }
+    let a=0, p75=0; for(let v=0;v<256;v++){ a+=hh[v]; if(a>=n*0.75){ p75=v; break; } } lastClip = p75>=250; }
+  const [cr,cg,cb,co]=chans[best]; lastChan=best;
   const g0=new Float32Array(N);
-  for(let i=0,j=0;j<N;i+=4,j++){ const v=px[i]*.299+px[i+1]*.587+px[i+2]*.114; g0[j]=S.invert?255-v:v; }
+  for(let i=0,j=0;j<N;i+=4,j++){ const v=Math.max(0,px[i]*cr+px[i+1]*cg+px[i+2]*cb+co); g0[j]=S.invert?255-v:v; }
   // räta upp lutande siffror
   const sp=Math.tan(S.slant*Math.PI/180)*H, g1=new Float32Array(N);
   for(let y=0;y<H;y++){ const shf=(0.5-y/H)*sp; for(let x=0;x<W;x++){ let xs=Math.round(x+shf); xs=xs<0?0:xs>=W?W-1:xs; g1[y*W+x]=g0[y*W+xs]; } }
@@ -404,7 +464,7 @@ function readDisplay(){
     for(let x=1;x<W-1;x++){ const x0=Math.max(0,x-rad), x1=Math.min(W,x+rad+1);
       const m=(I[y1*IW+x1]-I[y0*IW+x1]-I[y1*IW+x0]+I[y0*IW+x0])/((y1-y0)*(x1-x0));
       mean[y*W+x]=m; const c=(m-g[y*W+x])/(m+1); cont[y*W+x]=c>0?c:0; } }
-  const edge=Math.max(3,Math.round(W*0.03));   // displayens ram ger mörka streck nära kanten – riktiga siffror sitter aldrig där
+  const edge=Math.max(3,Math.round(W*(S.edgeFrac||0.05)));   // displayens ram ger mörka streck nära kanten – riktiga siffror sitter aldrig där
   const ct=(x,y)=> (x>=0&&x<W&&y>=0&&y<H) ? cont[y*W+x] : 0;
 
   function analyze(k){
@@ -453,7 +513,8 @@ function readDisplay(){
     let sb='', sk='';
     per.forEach(sc=>{ if(!sc){ sb+='1'; sk+='1'; return; }
       sb+=CODES[sc.map(z=>z.hit>0.5?'1':'0').join('')]||'?';
-      sk+=CODES[sc.map(z=>z.v>thr?'1':'0').join('')]||'?';
+      const td=S.perDigit===false ? thr : Math.max(0.035, 0.5*Math.max(...sc.map(z=>z.v)));   // egen gräns per siffra (ljuset varierar över displayen)
+      sk+=CODES[sc.map(z=>z.v>td?'1':'0').join('')]||'?';
       sc.forEach(z=>out.boxes.push([...z.r, z.v>thr])); });
     out.s.bin=sb; out.s.kon=sk;
     // 3) fack: fast avstånd mellan siffrorna, räknat från sista siffran
@@ -462,26 +523,48 @@ function readDisplay(){
     const pitch=diffs.length ? diffs.sort((a,b)=>a-b)[diffs.length>>1] : 0.857*h, dw=0.545*h, xR=groups[groups.length-1].x1;
     const slots=[]; for(let i=0;i<5;i++){ const right=xR-i*pitch, left=right-dw+1; if(left<edge) break; slots.push(score(left,dw)); }
     if(slots.length>=3){ const t2=thrOf(slots.slice(0,3).flat().map(z=>z.v)); let sf='';
-      slots.forEach((sc,i)=>{ const code=sc.map(z=>z.v>t2?'1':'0').join(''); let c=code==='0000000'?' ':(CODES[code]||'?'); if(i<3&&c===' ') c='?'; sf=c+sf; });
+      slots.forEach((sc,i)=>{ const mx=Math.max(...sc.map(z=>z.v));
+        const ts = (S.perDigit===false || mx<0.6*t2) ? t2 : Math.max(0.035, 0.5*mx);   // tänd siffra: egen gräns; släckt plats: gemensam
+        const code=sc.map(z=>z.v>ts?'1':'0').join(''); let c=code==='0000000'?' ':(CODES[code]||'?'); if(i<3&&c===' ') c='?'; sf=c+sf; });
       out.s.fack=sf; }
     return out;
   }
 
+  // Gränserna anpassas efter bildens kontrast: mät hur mörka de mörkaste delarna är (99:e percentilen)
+  const hist=new Uint32Array(256); let cnt=0;
+  for(let y=Math.floor(H*.12);y<H*.88;y+=2) for(let x=Math.floor(W*.25);x<W-edge;x+=2){ hist[Math.min(255,(cont[y*W+x]*255)|0)]++; cnt++; }
+  let acc=0, p99=0; for(let i=255;i>=0;i--){ acc+=hist[i]; if(acc>=cnt*0.01){ p99=i/255; break; } }
+  const ks = (S.kMode==='abs') ? KS : KS_REL.map(f=>Math.max(0.035, f*p99));   // gränser i förhållande till bildens kontrast
   // kör alla varianter och rösta
-  const votes={}, cands=[]; let show=null;
+  const votes={}, cands=[]; let show=null, usedLow=false;
   const need=Math.max(1,S.decimals)+1;
   const okNum=new RegExp('^-?\\d{'+need+',}$');
-  for(const k of KS){
+  for(const k of ks){
     const a=analyze(k); if(!show) show=a;
     for(const key of ['bin','kon','fack']){ const s=a.s[key]; if(s==null) continue; const n=s.replace(/ /g,''); cands.push(n);
       if(okNum.test(n)) votes[n]=(votes[n]||0)+1; }
-    if(k===KS[0]){ const v=Object.entries(votes); if(v.length===1 && v[0][1]===3) break; }   // snabbväg: alla tre överens
+    if(k===ks[0]){ const v=Object.entries(votes); if(v.length===1 && v[0][1]===3) break; }   // snabbväg: alla tre överens
   }
-  const ranked=Object.entries(votes).sort((a,b)=>b[1]-a[1]);
+  const winner=()=>{ const r=Object.entries(votes).sort((a,b)=>b[1]-a[1]); const t=r.length?r[0][1]:0, s2=r.length>1?r[1][1]:0;
+    return {r, ok: t>=VOTE_NEED && t-s2>=VOTE_MARGIN || t>=3 && s2<=1}; };
+  // andra försök: fasta gränser (fungerar bäst på vissa bilder med skuggsiffror)
+  const firstVotes={...votes}; let second=false;
+  if(!winner().ok && S.kMode!=='abs'){ second=true; for(const k of KS){ const a=analyze(k);
+    for(const key of ['bin','kon','fack']){ const s=a.s[key]; if(s==null) continue; const n=s.replace(/ /g,''); cands.push(n); if(okNum.test(n)) votes[n]=(votes[n]||0)+1; } } }
+  const ranked=winner().r;
   let chars;
   const top=ranked.length?ranked[0][1]:0, sec=ranked.length>1?ranked[1][1]:0;
-  if(top>=VOTE_NEED && top-sec>=VOTE_MARGIN || top>=3 && sec<=1) chars=ranked[0][0];   // 4 röster med marginal, eller 3 om inget annat tal har mer än 1
-  else chars = cands.every(c=>c==='') ? '' : '?';      // tom display (t.ex. skymd) eller osäker avläsning
+  const onlyOnes = ranked.length && /^-?1+$/.test(ranked[0][0]);   // bara ettor = typiskt felmönster (bara lodräta streck syns)
+  if((top>=VOTE_NEED && top-sec>=VOTE_MARGIN || top>=3 && sec<=1) && (!second || firstVotes[ranked[0][0]]) && (!onlyOnes || top>=5)) chars=ranked[0][0];   // andra försökets tal måste ha stöd även i första   // 4 röster med marginal, eller 3 om inget annat tal har mer än 1
+  else {
+    // Reserv vid svag kontrast (t.ex. överexponerad bild i kvällsljus): låga gränser, minst 2 av 3 överens
+    const lv={};
+    for(const k of KS_LOW){ const a=analyze(k), sb=a.s.bin; if(sb!=null){ const n=sb.replace(/ /g,''); cands.push(n); if(okNum.test(n)) lv[n]=(lv[n]||0)+1; } }
+    const lr=Object.entries(lv).sort((a,b)=>b[1]-a[1]);
+    if(lr.length && lr[0][1]>=2 && (lr.length<2 || lr[0][1]>lr[1][1]) && !/^-?1+$/.test(lr[0][0])){ chars=lr[0][0]; usedLow=true; }
+    else chars = cands.every(c=>c==='') ? '' : '?';      // tom display (t.ex. skymd) eller osäker avläsning
+  }
+  if(chars && /^-?\d+$/.test(chars) && Math.abs(parseInt(chars,10))/Math.pow(10,S.decimals) > 500) chars='?';   // vågen går bara till 500 g (skydd mot "888,88")
   lastDigits=show?show.digits:[];
   if($('setDet').open && show){
     dbg.width=W; dbg.height=H;
@@ -514,7 +597,7 @@ function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''
 function step(r, now){
   if(!r || !r.ok){
     if(hidStart==null) hidStart=now;   // displayen skymd/oläsbar (t.ex. handen i vägen vid byte)
-    if(now-lastOk>1500){ hist=[]; cur.val=null; return {disp:r?'?':'–', status: r ? ['Kan inte läsa','bad'] : [S.autoFind?'Hittar inte displayen':'Markera displayen','wait']}; }
+    if(now-lastOk>1500){ hist=[]; cur.val=null; return {disp:r?'?':'–', status: r ? [lastClip?'Kan inte läsa – bilden är överexponerad: zooma in på displayen':'Kan inte läsa','bad'] : [S.autoFind?'Hittar inte displayen':'Markera displayen','wait']}; }
     return null; // tillfälligt oläsbar – behåll senaste läge
   }
   lastOk=now;
@@ -696,7 +779,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:16, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:18, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
