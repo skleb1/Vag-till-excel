@@ -63,7 +63,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 </head>
 <body>
 <main>
-<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 15</span></h1>
+<h1>⚖️ Vågläsare – lock & dosor <span class="mut" style="font-weight:400">version 16</span></h1>
 
 <div class="card">
   <div id="camWrap">
@@ -344,7 +344,7 @@ let lastDigits=[];
 
 // Letar upp den upplysta gröna LCD-displayen i bilden (följer med om telefonen rör sig)
 const loc=document.createElement('canvas'), lctx=loc.getContext('2d',{willReadFrequently:true});
-let autoRoi=null;
+let autoRoi=null, roiPend=null;
 function locateLCD(){
   const vw=video.videoWidth, vh=video.videoHeight; if(!vw) return null;
   const LW=240, LH=Math.round(LW*vh/vw); loc.width=LW; loc.height=LH;
@@ -361,15 +361,23 @@ function locateLCD(){
   if(!best) return autoRoi;   // t.ex. släckt bakgrundsbelysning: läs vidare på samma ställe
   const px=1.5/LW, py=best.bh*0.12/LH;   // lite marginal runt displayen
   const nr={x:Math.max(0,best.x0/LW-px), y:Math.max(0,best.y0/LH-py), w:Math.min(1,best.bw/LW+2*px), h:Math.min(1,best.bh/LH+2*py)};
-  if(autoRoi && Math.abs(nr.x-autoRoi.x)<0.05 && Math.abs(nr.y-autoRoi.y)<0.05){ for(const k of ['x','y','w','h']) autoRoi[k]=autoRoi[k]*0.3+nr[k]*0.7; }
-  else autoRoi=nr;
+  const now=performance.now();
+  if(!autoRoi){ autoRoi=nr; roiPend=null; }
+  else {
+    const same = Math.abs((nr.x+nr.w/2)-(autoRoi.x+autoRoi.w/2)) < 0.06*Math.max(autoRoi.w,0.1)+0.01
+              && Math.abs((nr.y+nr.h/2)-(autoRoi.y+autoRoi.h/2)) < 0.25*autoRoi.h+0.005
+              && Math.abs(nr.w-autoRoi.w) < 0.12*autoRoi.w && Math.abs(nr.h-autoRoi.h) < 0.2*autoRoi.h;
+    if(same){ for(const k of ['x','y','w','h']) autoRoi[k]=autoRoi[k]*0.3+nr[k]*0.7; roiPend=null; }
+    else if(!roiPend) roiPend=now;                                   // annorlunda – troligen handen i vägen
+    else if(now-roiPend>1500){ autoRoi=nr; roiPend=null; }           // fortfarande annorlunda: telefonen har flyttats
+  }
   return autoRoi;
 }
 
 // Avläsningen körs med tre olika kontrastgränser och tre tolkningssätt (9 varianter).
 // Ett tal godkänns bara om minst 4 varianter läser exakt samma (och inget annat tal ligger nära), eller 3 om inget annat tal har mer än 1 röst.
 // Testat på 264 bilder från riktiga loggar: 243 rätt (förut 229), fel tal bara på en bild mitt i ett siffbyte (förut 5 fel).
-const KS=[0.12,0.18,0.25], VOTE_NEED=4, VOTE_MARGIN=2;
+const KS=[0.25,0.18,0.12], VOTE_NEED=4, VOTE_MARGIN=2;   // 0,25 först: är dess tre tolkningar överens räcker det (snabbväg)
 const SEGR=[['h',0,.18],['v',.2,.38,.55,1],['v',.62,.8,.5,.95],['h',.82,1],['v',.62,.8,0,.45],['v',.2,.38,.05,.5],['h',.4,.6]];
 function readDisplay(){
   if(S.autoFind){ const a=locateLCD(); if(!a) return null; S.roi=a; }
@@ -462,10 +470,12 @@ function readDisplay(){
   // kör alla varianter och rösta
   const votes={}, cands=[]; let show=null;
   const need=Math.max(1,S.decimals)+1;
+  const okNum=new RegExp('^-?\\d{'+need+',}$');
   for(const k of KS){
-    const a=analyze(k); if(k===0.18 || !show) show=a;
+    const a=analyze(k); if(!show) show=a;
     for(const key of ['bin','kon','fack']){ const s=a.s[key]; if(s==null) continue; const n=s.replace(/ /g,''); cands.push(n);
-      if(new RegExp('^-?\\d{'+need+',}$').test(n)) votes[n]=(votes[n]||0)+1; }
+      if(okNum.test(n)) votes[n]=(votes[n]||0)+1; }
+    if(k===KS[0]){ const v=Object.entries(votes); if(v.length===1 && v[0][1]===3) break; }   // snabbväg: alla tre överens
   }
   const ranked=Object.entries(votes).sort((a,b)=>b[1]-a[1]);
   let chars;
@@ -498,6 +508,7 @@ function decode(chars){
 // ---------- Stabilitet & autosparning ----------
 // Oläsbara bilder hoppas över (nollställer inget). Vikten räknas som stabil när alla
 // avläsningar senaste sekunden ligger inom ±tolerans. Under minsta vikt => redo för nästa.
+let readEvery=110, procMs=20, smallSince=null;
 let hist=[], armed=true, cur={val:null}, lastT=0, lastOk=0, smallCnt=0, redo=false, lastSaved=null, refStable=null, plat=null, hidStart=null, pend=false;
 function setStatus(t,c){ const s=$('status'); s.textContent=t; s.className=c||''; }
 function step(r, now){
@@ -521,7 +532,8 @@ function step(r, now){
   // "Tom våg" räknas inte om den bara är decimalerna av vikten som ligger på (8,44 felläst som 0,44)
   const fakeZero = small && r.val>=0.2 && refStable!=null && Math.abs(Math.round((refStable%1)*100)/100 - r.val) < 0.015;
   smallCnt = (small && !fakeZero) ? smallCnt+1 : 0;
-  if(smallCnt>=2){ armed=true; redo=false; plat=null; }
+  if(smallCnt===1) smallSince=now;
+  if(smallCnt>=2 && now-smallSince>=80){ armed=true; redo=false; plat=null; }
   // Snabbt byte utan att vågen hann visa 0: en ny stabil vikt som skiljer ≥0,05 g från den senast sparade
   // och ligger kvar i 1 sekund räknas som en ny dosa/lock.
   let newWeight=false;
@@ -546,8 +558,10 @@ function handleReading(r, now){
 function loop(ts){
   if(!stream) return;
   drawOverlay();
-  if(ts-lastT>110){ lastT=ts;
-    handleReading(readDisplay(), performance.now());
+  if(ts-lastT>readEvery){ lastT=ts;
+    const t0=performance.now(); const r=readDisplay(); const dt=performance.now()-t0;
+    procMs=procMs*0.8+dt*0.2; readEvery=Math.min(110, Math.max(40, procMs*2));   // lämna halva tiden åt telefonen
+    handleReading(r, performance.now());
   }
   requestAnimationFrame(loop);
 }
@@ -682,7 +696,7 @@ $('btnLogClear').onclick=async()=>{ if(await ask('Rensa testloggen?')){ Object.a
 $('btnLog').onclick=async()=>{
   if(!LOG.frames.length && !LOG.events.length){ toast('Loggen är tom – slå på "Spela in testlogg" först'); return; }
   let cam=null; try{ const tr=stream&&stream.getVideoTracks()[0]; if(tr) cam={settings:tr.getSettings(), caps:tr.getCapabilities?tr.getCapabilities():null}; }catch(e){}
-  const out={app:'vagavlasare', version:15, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
+  const out={app:'vagavlasare', version:16, started:new Date(LOG.wall).toISOString(), exported:new Date().toISOString(), meta:LOG.meta, cam,
     video:[video.videoWidth,video.videoHeight], settings:S, data:{dosor:D.dosor, lock:D.lock},
     framesFormat:['ms','värde','rå','status','roi'], frames:LOG.frames, events:LOG.events, snaps:LOG.snaps};
   const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
